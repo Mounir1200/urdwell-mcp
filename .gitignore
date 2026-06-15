@@ -1,0 +1,37 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.venv/
+.env
+.env.*
+!.env.example
+
+.codegraph/
+.codegraph
+
+# Local runtime state and private notes
+data/
+notes
+results_*
+
+# Downloaded benchmark datasets and generated reports
+benchmarks/longmemeval/*.json
+benchmarks/longmemeval/*.json.part
+benchmarks/longmemeval/reports/
+
+.codebase-memory/
+.codebase-memory
+
+
+.codex/
+.codex
+
+.claude/
+.claude

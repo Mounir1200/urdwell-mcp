@@ -1,0 +1,6 @@
+FROM gemma4:latest
+
+PARAMETER num_ctx 131072
+PARAMETER temperature 1
+PARAMETER top_p 0.95
+PARAMETER top_k 64
