@@ -11,7 +11,7 @@ from mcp.client.stdio import get_default_environment, stdio_client
 from mcp.types import TextContent
 
 
-SERVER_PATH = Path(__file__).with_name("context_memory.py")
+REPO_ROOT = Path(__file__).parent
 TOOL_TIMEOUT = timedelta(seconds=10)
 
 
@@ -29,8 +29,9 @@ class McpEndToEndTests(unittest.IsolatedAsyncioTestCase):
             )
             params = StdioServerParameters(
                 command=sys.executable,
-                args=[str(SERVER_PATH)],
+                args=["-m", "contextmemory.server"],
                 env=env,
+                cwd=str(REPO_ROOT),
             )
             async with stdio_client(params) as (read, write):
                 async with ClientSession(read, write) as session:

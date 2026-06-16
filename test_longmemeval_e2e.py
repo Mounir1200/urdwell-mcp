@@ -13,7 +13,7 @@ from benchmarks.longmemeval.run_end_to_end import (
     ingest_verbatim_case,
     official_judge_prompt,
 )
-from storage import JsonStore
+from contextmemory.storage import JsonStore
 
 
 class FakeClient:
