@@ -31,17 +31,6 @@ MAX_CONFIDENCE = 1.0
 mcp = FastMCP("ContextMemory")
 store = JsonStore()
 
-# Preload the model on the main thread. FastMCP runs synchronous tools in
-# worker threads, and importing torch there can deadlock on Windows.
-# Human-readable process messages must use stderr because stdout belongs to
-# the JSON-RPC protocol when using stdio transport.
-print(
-    f"ContextMemory: initializing {embeddings.backend_name()} embeddings...",
-    file=sys.stderr,
-)
-embeddings.embed("warmup")
-print("ContextMemory: embedding backend ready.", file=sys.stderr)
-
 
 @mcp.tool()
 def save_memory(
@@ -177,10 +166,22 @@ def read_archive(last_n: int = 50) -> list[dict]:
     return store.read_archive(min(max(last_n, 0), MAX_ARCHIVE_READ))
 
 
-def main() -> None:
-    """Console-script entry point: serve ContextMemory over stdio."""
+def serve() -> None:
+    """Serve ContextMemory over stdio (the ``contextmemory serve`` command).
+
+    The embedding model is preloaded here, on the main thread, before requests
+    arrive: FastMCP runs synchronous tools in worker threads and importing the
+    ML backend there can deadlock on Windows. Human-readable messages go to
+    stderr because stdout carries the JSON-RPC protocol over stdio.
+    """
+    print(
+        f"ContextMemory: initializing {embeddings.backend_name()} embeddings...",
+        file=sys.stderr,
+    )
+    embeddings.embed("warmup")
+    print("ContextMemory: embedding backend ready.", file=sys.stderr)
     mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":
-    main()
+    serve()
