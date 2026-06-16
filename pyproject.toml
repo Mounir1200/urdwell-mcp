@@ -1,6 +1,6 @@
 [project]
 name = "contextmemory"
-version = "0.1.0"
+version = "0.2.0"
 description = "Long-term memory MCP server with bi-temporal invalidation and semantic search"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -18,8 +18,12 @@ classifiers = [
 ]
 dependencies = [
     "mcp[cli]>=1.27.2",
-    "sentence-transformers>=3.0",
+    "fastembed>=0.8.0",
 ]
+
+[project.optional-dependencies]
+# Heavy PyTorch backend; only needed for CONTEXT_MEMORY_EMBEDDING_BACKEND=transformer.
+transformer = ["sentence-transformers>=3.0"]
 
 [project.urls]
 Homepage = "https://github.com/Mounir1200/contextmemory-mcp"
@@ -27,7 +31,7 @@ Repository = "https://github.com/Mounir1200/contextmemory-mcp"
 Issues = "https://github.com/Mounir1200/contextmemory-mcp/issues"
 
 [project.scripts]
-contextmemory = "contextmemory.server:main"
+contextmemory = "contextmemory.cli:main"
 
 [build-system]
 requires = ["hatchling"]

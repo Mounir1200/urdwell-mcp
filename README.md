@@ -39,7 +39,9 @@ The current implementation focuses on:
 | Structured memory model | Done |
 | Bi-temporal invalidation | Done |
 | Semantic embeddings with MiniLM | Done |
+| Lightweight ONNX embedding backend (fastembed) | Done |
 | Deterministic hashing backend for tests | Done |
+| One-line installer and `contextmemory install` agent wiring | Done |
 | LLM arbitration contract for conflicts | Done |
 | MCP stdio end-to-end test suite | Done |
 | LongMemEval retrieval benchmark | Done |
@@ -84,7 +86,10 @@ invalidated.
 
 | Path | Purpose |
 |---|---|
-| `contextmemory/server.py` | MCP server and public tool definitions (console-script entry point). |
+| `contextmemory/cli.py` | Console entry point: dispatches `serve`, `install`, `uninstall`, `upgrade`, `version`. |
+| `contextmemory/server.py` | MCP server and public tool definitions; `serve()` runs it over stdio. |
+| `contextmemory/integrations.py` | Detects coding agents and wires the MCP server into each (`install`/`uninstall`). |
+| `install.sh`, `install.ps1` | One-line installers that bootstrap `uv` and install the `contextmemory` tool. |
 | `contextmemory/models.py` | `Memory` model, valid memory types, timestamps, and legacy schema upgrade logic. |
 | `contextmemory/storage.py` | Atomic, lock-serialized JSON persistence for archive entries, structured memories, and embedding vectors. |
 | `contextmemory/pipeline.py` | Memory consolidation logic: similarity search, arbitration, add, ignore, expire. |
@@ -102,121 +107,96 @@ invalidated.
 
 ## Installation
 
-### Option A: Install as a tool (recommended)
+### 1. Install the CLI
 
-Once published to PyPI, run it directly without cloning, using
-[`uv`](https://docs.astral.sh/uv/):
-
-```bash
-uvx contextmemory
-```
-
-or install it into the current environment:
+No prior Python or Node needed — the installer pulls in
+[`uv`](https://docs.astral.sh/uv/), which manages its own runtime:
 
 ```bash
-pip install contextmemory
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/Mounir1200/contextmemory-mcp/main/install.sh | sh
 ```
-
-This exposes a `contextmemory` console command that starts the MCP server over
-stdio.
-
-### Option B: Install from source
-
-### 1. Install `uv`
-
-On Windows PowerShell:
 
 ```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/Mounir1200/contextmemory-mcp/main/install.ps1 | iex
 ```
 
-On macOS or Linux:
+Already have `uv`? Install the tool directly:
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+uv tool install git+https://github.com/Mounir1200/contextmemory-mcp
+# or, once published to PyPI:  uv tool install contextmemory
 ```
 
-Alternative package-manager installs are documented in the
-[uv installation guide](https://docs.astral.sh/uv/getting-started/installation/).
+The installer puts `contextmemory` on your PATH but does not change your current
+shell — open a new terminal before the next step. Upgrade any time with
+`contextmemory upgrade`.
 
-### 2. Clone and sync dependencies
+### 2. Wire up your agent(s)
+
+In a new terminal:
+
+```bash
+contextmemory install
+```
+
+This detects which agents are installed and adds the ContextMemory MCP server to
+each: **Claude Code, Claude Desktop, Cursor, Windsurf, Gemini CLI, Codex CLI,
+opencode, and Kiro**. It only touches agents it finds, merges into existing
+config without overwriting other servers, and is safe to re-run. Open a new
+terminal (or restart the agent) afterward.
+
+Remove it from every agent it configured with:
+
+```bash
+contextmemory uninstall
+```
+
+### No per-project init, no syncing
+
+Unlike a code-index tool, ContextMemory keeps a single durable memory store
+(location set by `CONTEXT_MEMORY_DATA_DIR`), so there is no per-project `init`
+step and nothing to sync — every memory is persisted the moment a tool writes it.
+
+### Manual configuration
+
+To wire an agent by hand, add this to its MCP config (for example
+`claude_desktop_config.json` or `~/.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "contextmemory": {
+      "command": "contextmemory",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+### From source (for development)
 
 ```bash
 git clone https://github.com/Mounir1200/contextmemory-mcp.git
 cd contextmemory-mcp
-uv sync
+uv sync                                   # installs the fastembed (ONNX) backend
+uv run contextmemory serve                # run the server
+uv run mcp dev contextmemory/server.py    # inspect with the MCP Inspector
 ```
 
-The project requires Python 3.12 or newer. If the PyTorch dependency pulled by
-`sentence-transformers` fails on Python 3.14, pin Python 3.13 before syncing:
+The default `fastembed` backend downloads a ~0.2 GB ONNX model on first use — no
+PyTorch. For the heavier sentence-transformers/PyTorch backend, install the extra:
 
 ```bash
-uv python pin 3.13
-uv sync
+uv sync --extra transformer
+CONTEXT_MEMORY_EMBEDDING_BACKEND=transformer uv run contextmemory serve
 ```
 
-The transformer embedding model is downloaded and cached on first use. For
-offline diagnostics and deterministic tests, use the hashing backend:
+For offline, deterministic tests use the hashing backend:
 
 ```bash
 CONTEXT_MEMORY_EMBEDDING_BACKEND=hashing uv run python -m unittest -v
-```
-
-On PowerShell:
-
-```powershell
-$env:CONTEXT_MEMORY_EMBEDDING_BACKEND = "hashing"
-uv run python -m unittest -v
-```
-
-## Running the Server
-
-If installed as a tool (Option A), start the server with:
-
-```bash
-contextmemory
-```
-
-From a source checkout (Option B), start it with:
-
-```bash
-uv run contextmemory
-```
-
-For manual inspection with the MCP Inspector:
-
-```bash
-uv run mcp dev contextmemory/server.py
-```
-
-### Claude Desktop Configuration
-
-Add the server to `claude_desktop_config.json`.
-
-Using the published package (no checkout required):
-
-```json
-{
-  "mcpServers": {
-    "ContextMemory": {
-      "command": "uvx",
-      "args": ["contextmemory"]
-    }
-  }
-}
-```
-
-From a source checkout:
-
-```json
-{
-  "mcpServers": {
-    "ContextMemory": {
-      "command": "uv",
-      "args": ["run", "--directory", "C:\\YOUR\\PATH\\ContextMemory", "contextmemory"]
-    }
-  }
-}
 ```
 
 ## MCP Tools
@@ -242,8 +222,9 @@ Supported memory types:
 | Variable | Default | Purpose |
 |---|---|---|
 | `CONTEXT_MEMORY_DATA_DIR` | `data/` | Overrides where archive, memories, and embeddings are stored. |
-| `CONTEXT_MEMORY_EMBEDDING_BACKEND` | `transformer` | Use `transformer` for MiniLM or `hashing` for deterministic local tests. |
-| `CONTEXT_MEMORY_EMBEDDING_REVISION` | unset | Pin the embedding model to a specific Hugging Face commit hash (supply-chain hardening). |
+| `CONTEXT_MEMORY_EMBEDDING_BACKEND` | `fastembed` | `fastembed` (ONNX, no PyTorch), `transformer` (sentence-transformers/PyTorch), or `hashing` (deterministic, dependency-free, for tests). |
+| `CONTEXT_MEMORY_EMBEDDING_MODEL` | MiniLM L12 v2 | Embedding model id shared by the `fastembed` and `transformer` backends. |
+| `CONTEXT_MEMORY_EMBEDDING_REVISION` | unset | Pin the `transformer` model to a specific Hugging Face commit hash (supply-chain hardening). |
 | `CONTEXT_MEMORY_LLM_BASE_URL` | `https://api.openai.com/v1` | Default base URL for the LongMemEval chat client. |
 | `OPENAI_API_KEY` | unset | API key used by OpenAI-compatible LongMemEval runs. Not required for local Ollama. |
 
