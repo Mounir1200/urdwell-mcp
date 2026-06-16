@@ -221,7 +221,7 @@ Supported memory types:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CONTEXT_MEMORY_DATA_DIR` | `data/` | Overrides where archive, memories, and embeddings are stored. |
+| `CONTEXT_MEMORY_DATA_DIR` | per-user data dir | Where archive, memories, and embeddings are stored. Defaults to a stable user location (`%LOCALAPPDATA%\ContextMemory` on Windows, `~/.local/share/contextmemory` on Linux, `~/Library/Application Support/ContextMemory` on macOS) so upgrades never touch it. |
 | `CONTEXT_MEMORY_EMBEDDING_BACKEND` | `fastembed` | `fastembed` (ONNX, no PyTorch), `transformer` (sentence-transformers/PyTorch), or `hashing` (deterministic, dependency-free, for tests). |
 | `CONTEXT_MEMORY_EMBEDDING_MODEL` | MiniLM L12 v2 | Embedding model id shared by the `fastembed` and `transformer` backends. |
 | `CONTEXT_MEMORY_EMBEDDING_REVISION` | unset | Pin the `transformer` model to a specific Hugging Face commit hash (supply-chain hardening). |

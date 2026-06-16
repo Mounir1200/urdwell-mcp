@@ -13,6 +13,7 @@ threads.
 
 import json
 import os
+import platform
 import tempfile
 import threading
 from collections import deque
@@ -20,8 +21,24 @@ from pathlib import Path
 
 from contextmemory.models import Memory, now_utc
 
-DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR_ENV_VAR = "CONTEXT_MEMORY_DATA_DIR"
+
+
+def default_data_dir() -> Path:
+    """Return the per-user data directory used when no location is configured.
+
+    The store lives in a stable, user-owned location, never inside the installed
+    package directory, so that ``contextmemory upgrade`` or a reinstall cannot
+    delete memories. Override it with the ``CONTEXT_MEMORY_DATA_DIR`` variable.
+    """
+    system = platform.system()
+    if system == "Windows":
+        base = os.getenv("LOCALAPPDATA") or Path.home() / "AppData" / "Local"
+        return Path(base) / "ContextMemory"
+    if system == "Darwin":
+        return Path.home() / "Library" / "Application Support" / "ContextMemory"
+    base = os.getenv("XDG_DATA_HOME") or Path.home() / ".local" / "share"
+    return Path(base) / "contextmemory"
 
 
 def _atomic_write_json(path: Path, payload: object) -> None:
@@ -42,7 +59,7 @@ def _atomic_write_json(path: Path, payload: object) -> None:
 
 class JsonStore:
     def __init__(self, data_dir: Path | None = None):
-        configured_dir = data_dir or Path(os.getenv(DATA_DIR_ENV_VAR, DATA_DIR))
+        configured_dir = data_dir or os.getenv(DATA_DIR_ENV_VAR) or default_data_dir()
         self.dir = Path(configured_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.archive_path = self.dir / "archive.jsonl"
