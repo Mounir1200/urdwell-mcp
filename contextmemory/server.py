@@ -3,8 +3,8 @@
 MCP servers are passive: the client-side LLM decides when to call each tool.
 Tool docstrings therefore define the behavior visible to the model.
 
-Debug: ``uv run mcp dev context_memory.py``
-Production over stdio: ``uv run context_memory.py``
+Debug: ``uv run mcp dev contextmemory/server.py``
+Production over stdio: ``uv run contextmemory``
 """
 
 import sys
@@ -12,10 +12,20 @@ from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
 
-import embeddings
-from models import Memory, VALID_MEMORY_TYPES
-import pipeline
-from storage import JsonStore
+from contextmemory import embeddings
+from contextmemory import pipeline
+from contextmemory.models import Memory, VALID_MEMORY_TYPES
+from contextmemory.storage import JsonStore
+
+# Defensive ceilings on tool inputs. Memories are short sentences, so these are
+# generous guardrails against accidental or hostile oversized payloads, not
+# functional limits.
+MAX_CONTENT_CHARS = 10_000
+MAX_SEARCH_RESULTS = 50
+MAX_ARCHIVE_READ = 1_000
+
+MIN_CONFIDENCE = 0.0
+MAX_CONFIDENCE = 1.0
 
 
 mcp = FastMCP("ContextMemory")
@@ -69,11 +79,13 @@ def save_memory(
                 f"{sorted(VALID_MEMORY_TYPES)}"
             )
         }
+    if len(content) > MAX_CONTENT_CHARS:
+        return {"error": f"content exceeds {MAX_CONTENT_CHARS} characters"}
     memory = Memory(
         content=content,
         type=memory_type,
         source=source,
-        confidence=confidence,
+        confidence=min(max(confidence, MIN_CONFIDENCE), MAX_CONFIDENCE),
     )
     return pipeline.process_memory(
         store,
@@ -90,6 +102,8 @@ def archive_exchange(role: str, content: str, session: str | None = None) -> str
     Use this source-of-truth layer when exact wording must survive context
     compaction. No analysis or consolidation is performed.
     """
+    if len(content) > MAX_CONTENT_CHARS:
+        return f"error: content exceeds {MAX_CONTENT_CHARS} characters"
     store.append_archive(role, content, session)
     return "archived"
 
@@ -107,6 +121,7 @@ def search_memory(
         k: Maximum number of results.
         include_expired: Include invalidated historical memories.
     """
+    k = min(max(k, 1), MAX_SEARCH_RESULTS)
     query_embedding = embeddings.embed(query)
     candidates = store.all(active_only=not include_expired)
     stored_embeddings = store.all_embeddings()
@@ -140,6 +155,8 @@ def list_memories(
 @mcp.tool()
 def check_conflicts(content: str) -> list[dict]:
     """Return active memories that may conflict with the supplied fact."""
+    if len(content) > MAX_CONTENT_CHARS:
+        return [{"error": f"content exceeds {MAX_CONTENT_CHARS} characters"}]
     content_embedding = embeddings.embed(content)
     similar_memories = pipeline.find_similar_memories(store, content_embedding)
     return [
@@ -157,8 +174,13 @@ def check_conflicts(content: str) -> list[dict]:
 @mcp.tool()
 def read_archive(last_n: int = 50) -> list[dict]:
     """Read the last entries from the verbatim raw archive."""
-    return store.read_archive(last_n)
+    return store.read_archive(min(max(last_n, 0), MAX_ARCHIVE_READ))
+
+
+def main() -> None:
+    """Console-script entry point: serve ContextMemory over stdio."""
+    mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    main()

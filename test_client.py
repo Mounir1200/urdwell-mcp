@@ -24,7 +24,7 @@ async def main():
     })
     params = StdioServerParameters(
         command="uv",
-        args=["run", "context_memory.py"],
+        args=["run", "contextmemory"],
         env=env,
     )
 

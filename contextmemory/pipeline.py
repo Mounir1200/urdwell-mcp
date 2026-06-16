@@ -5,10 +5,11 @@ a duplicate, contradiction, or new fact, and then persisted. Contradictions
 expire old memories instead of deleting them.
 """
 
-from models import Memory
-from storage import JsonStore
-import embeddings
 import unicodedata
+
+from contextmemory import embeddings
+from contextmemory.models import Memory
+from contextmemory.storage import JsonStore
 
 # Tune this threshold empirically for the selected embedding model.
 SIMILARITY_THRESHOLD = 0.55

@@ -35,3 +35,6 @@ benchmarks/longmemeval/reports/
 
 .claude/
 .claude
+
+.agents
+.agents/

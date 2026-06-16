@@ -25,10 +25,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import embeddings
-from models import Memory, VALID_MEMORY_TYPES
-import pipeline
-from storage import JsonStore
+from contextmemory import embeddings
+from contextmemory import pipeline
+from contextmemory.models import Memory, VALID_MEMORY_TYPES
+from contextmemory.storage import JsonStore
 
 from benchmarks.longmemeval.llm_client import ChatClient, ChatResponse
 from benchmarks.longmemeval.run_retrieval import (

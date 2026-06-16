@@ -10,8 +10,9 @@ import os
 import re
 import unicodedata
 
-_MODEL_NAME = "paraphrase-multilingual-MiniLM-L12-v2"
+_MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 _BACKEND_ENV_VAR = "CONTEXT_MEMORY_EMBEDDING_BACKEND"
+_REVISION_ENV_VAR = "CONTEXT_MEMORY_EMBEDDING_REVISION"
 _HASHING_DIMENSIONS = 256
 _model = None
 
@@ -28,12 +29,18 @@ def backend_name() -> str:
 
 
 def _get_model():
-    """Load the dependency and model lazily on first use."""
+    """Load the dependency and model lazily on first use.
+
+    Loading model weights from a remote repository is a supply-chain trust
+    boundary. Set ``CONTEXT_MEMORY_EMBEDDING_REVISION`` to a specific commit
+    hash to pin the weights and protect against a compromised upstream model.
+    """
     global _model
     if _model is None:
         from sentence_transformers import SentenceTransformer
 
-        _model = SentenceTransformer(_MODEL_NAME)
+        revision = os.getenv(_REVISION_ENV_VAR) or None
+        _model = SentenceTransformer(_MODEL_NAME, revision=revision)
     return _model
 
 
