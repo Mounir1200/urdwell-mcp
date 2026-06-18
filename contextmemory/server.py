@@ -14,6 +14,7 @@ from mcp.server.fastmcp import FastMCP
 
 from contextmemory import embeddings
 from contextmemory import pipeline
+from contextmemory import ranking
 from contextmemory.models import Memory, VALID_MEMORY_TYPES
 from contextmemory.storage import ParquetStore
 
@@ -103,7 +104,12 @@ def search_memory(
     k: int = 5,
     include_expired: bool = False,
 ) -> list[dict]:
-    """Search memories semantically.
+    """Search memories with hybrid semantic + keyword ranking.
+
+    Results are ordered by fusing dense (semantic) and lexical (exact-term)
+    relevance, so memories that match a name, identifier, or rare word surface
+    even when the embedding alone ranks them low. Returns nothing when no
+    memory is semantically relevant.
 
     Args:
         query: A natural-language question or topic.
@@ -112,20 +118,22 @@ def search_memory(
     """
     k = min(max(k, 1), MAX_SEARCH_RESULTS)
     query_embedding = embeddings.embed(query)
-    candidates = store.all(active_only=not include_expired)
     stored_embeddings = store.all_embeddings()
-    scores = []
-    for memory in candidates:
-        stored_embedding = stored_embeddings.get(memory.id)
-        if stored_embedding is None:
-            continue
-        score = embeddings.cosine_similarity(query_embedding, stored_embedding)
-        scores.append((memory, score))
-    scores.sort(key=lambda item: item[1], reverse=True)
+    candidates = [
+        (memory, stored_embeddings[memory.id])
+        for memory in store.all(active_only=not include_expired)
+        if memory.id in stored_embeddings
+    ]
+    ranked = ranking.hybrid_rank(
+        query,
+        query_embedding,
+        candidates,
+        k,
+        cosine_floor=pipeline.SIMILARITY_THRESHOLD,
+    )
     return [
         {**memory.to_dict(), "score": round(score, 3)}
-        for memory, score in scores[:k]
-        if score >= pipeline.SIMILARITY_THRESHOLD
+        for memory, score in ranked
     ]
 
 
