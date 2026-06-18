@@ -26,7 +26,7 @@ The current implementation focuses on:
   state;
 - explicit conflict handling through `ADD`, `IGNORE`, and `EXPIRE` decisions;
 - temporal validity with `valid_from` and `valid_until`;
-- reproducible local storage with JSON files;
+- typed local storage with compressed Parquet files;
 - MCP end-to-end tests over stdio;
 - LongMemEval retrieval and end-to-end evaluation harnesses.
 
@@ -40,6 +40,7 @@ The current implementation focuses on:
 | Bi-temporal invalidation | Done |
 | Semantic embeddings with MiniLM | Done |
 | Lightweight ONNX embedding backend (fastembed) | Done |
+| Typed Parquet persistence with automatic JSON migration | Done |
 | Deterministic hashing backend for tests | Done |
 | One-line installer and `contextmemory install` agent wiring | Done |
 | LLM arbitration contract for conflicts | Done |
@@ -64,9 +65,9 @@ contextmemory/server.py
 contextmemory/pipeline.py  ----> contextmemory/embeddings.py
   |
   v
-contextmemory/storage.py   ----> data/archive.jsonl
-                              -> data/memories.json
-                              -> data/embeddings.json
+contextmemory/storage.py   ----> data/archive.parquet
+                              -> data/memories.parquet
+                                 (memory fields + embedding vector)
 ```
 
 The normal write path is:
@@ -91,7 +92,7 @@ invalidated.
 | `contextmemory/integrations.py` | Detects coding agents and wires the MCP server into each (`install`/`uninstall`). |
 | `install.sh`, `install.ps1` | One-line installers that bootstrap `uv` and install the `contextmemory` tool. |
 | `contextmemory/models.py` | `Memory` model, valid memory types, timestamps, and legacy schema upgrade logic. |
-| `contextmemory/storage.py` | Atomic, lock-serialized JSON persistence for archive entries, structured memories, and embedding vectors. |
+| `contextmemory/storage.py` | Atomic, lock-serialized Parquet persistence with transparent migration from the legacy JSON store. |
 | `contextmemory/pipeline.py` | Memory consolidation logic: similarity search, arbitration, add, ignore, expire. |
 | `contextmemory/embeddings.py` | Embedding backend selection, MiniLM loading, hashing backend, cosine similarity. |
 | `pyproject.toml` | Project metadata, dependencies, and console-script entry point. |
@@ -185,13 +186,9 @@ uv run contextmemory serve                # run the server
 uv run mcp dev contextmemory/server.py    # inspect with the MCP Inspector
 ```
 
-The default `fastembed` backend downloads a ~0.2 GB ONNX model on first use — no
-PyTorch. For the heavier sentence-transformers/PyTorch backend, install the extra:
-
-```bash
-uv sync --extra transformer
-CONTEXT_MEMORY_EMBEDDING_BACKEND=transformer uv run contextmemory serve
-```
+The default `fastembed` backend downloads the multilingual
+`paraphrase-multilingual-MiniLM-L12-v2` ONNX model on first use. PyTorch is not
+installed or used.
 
 For offline, deterministic tests use the hashing backend:
 
@@ -221,10 +218,9 @@ Supported memory types:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CONTEXT_MEMORY_DATA_DIR` | per-user data dir | Where archive, memories, and embeddings are stored. Defaults to a stable user location (`%LOCALAPPDATA%\ContextMemory` on Windows, `~/.local/share/contextmemory` on Linux, `~/Library/Application Support/ContextMemory` on macOS) so upgrades never touch it. |
-| `CONTEXT_MEMORY_EMBEDDING_BACKEND` | `fastembed` | `fastembed` (ONNX, no PyTorch), `transformer` (sentence-transformers/PyTorch), or `hashing` (deterministic, dependency-free, for tests). |
-| `CONTEXT_MEMORY_EMBEDDING_MODEL` | MiniLM L12 v2 | Embedding model id shared by the `fastembed` and `transformer` backends. |
-| `CONTEXT_MEMORY_EMBEDDING_REVISION` | unset | Pin the `transformer` model to a specific Hugging Face commit hash (supply-chain hardening). |
+| `CONTEXT_MEMORY_DATA_DIR` | per-user data dir | Where `archive.parquet` and `memories.parquet` are stored. Existing JSON files are migrated automatically and retained as recovery copies. Defaults to a stable user location (`%LOCALAPPDATA%\ContextMemory` on Windows, `~/.local/share/contextmemory` on Linux, `~/Library/Application Support/ContextMemory` on macOS) so upgrades never touch it. |
+| `CONTEXT_MEMORY_EMBEDDING_BACKEND` | `fastembed` | `fastembed` (ONNX, no PyTorch) or `hashing` (deterministic, dependency-free, for tests). |
+| `CONTEXT_MEMORY_EMBEDDING_MODEL` | paraphrase-multilingual-MiniLM-L12-v2 | FastEmbed model id. |
 | `CONTEXT_MEMORY_LLM_BASE_URL` | `https://api.openai.com/v1` | Default base URL for the LongMemEval chat client. |
 | `OPENAI_API_KEY` | unset | API key used by OpenAI-compatible LongMemEval runs. Not required for local Ollama. |
 
@@ -238,7 +234,7 @@ uv run python -m unittest -v
 
 The MCP end-to-end tests start the server over stdio with an isolated temporary
 data directory and the deterministic hashing embedding backend. They do not
-modify production memories and do not download the transformer model.
+modify production memories and do not download the FastEmbed model.
 
 ## LongMemEval
 
@@ -279,7 +275,7 @@ Run the MiniLM retriever:
 
 ```bash
 uv run python benchmarks/longmemeval/run_retrieval.py \
-  --backend transformer \
+  --backend fastembed \
   --granularity turn \
   --limit 100
 ```
@@ -310,7 +306,7 @@ Tested configuration:
 | Runtime | Ollama `0.21.2` |
 | ContextMemory reader and judge | `gemma4:26b` |
 | Raw-history baseline model | `gemma4-8b-128k` |
-| Embedding backend | `transformer` / MiniLM |
+| Embedding backend | `fastembed` / paraphrase-multilingual-MiniLM-L12-v2 |
 | Ingestion mode | `verbatim` |
 | Retrieval | top-k `5`, threshold `0.0`, include expired memories |
 | Provider URL | `http://127.0.0.1:11434/v1` |
@@ -438,11 +434,11 @@ knowing before you deploy it:
   is read back into a later prompt, so untrusted ingested text can act as a
   stored prompt injection. Only give memory-writing tools to agents whose input
   sources you trust.
-- **The data store is plaintext, local JSON.** Protect the data directory with
+- **The data store is unencrypted, local Parquet.** Protect the data directory with
   appropriate filesystem permissions; it is ignored by Git by default.
 
-Writes are atomic and lock-serialized, tool inputs are bounded, and the
-embedding model can be pinned with `CONTEXT_MEMORY_EMBEDDING_REVISION`. See
+Writes are atomic and lock-serialized, tool inputs are bounded, and PyTorch is
+not part of the runtime. See
 [SECURITY.md](SECURITY.md) for the full threat model and how to report a
 vulnerability.
 

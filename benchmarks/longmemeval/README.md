@@ -25,7 +25,7 @@ Run the production MiniLM retriever:
 
 ```bash
 uv run python benchmarks/longmemeval/run_retrieval.py \
-  --backend transformer \
+  --backend fastembed \
   --granularity turn \
   --limit 100
 ```
@@ -36,7 +36,7 @@ time-aware variant, which prefixes each indexed item with its session date:
 
 ```bash
 uv run python benchmarks/longmemeval/run_retrieval.py \
-  --backend transformer \
+  --backend fastembed \
   --granularity turn \
   --include-date
 ```

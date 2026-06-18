@@ -19,11 +19,8 @@ classifiers = [
 dependencies = [
     "mcp[cli]>=1.27.2",
     "fastembed>=0.8.0",
+    "pyarrow>=18.0.0",
 ]
-
-[project.optional-dependencies]
-# Heavy PyTorch backend; only needed for CONTEXT_MEMORY_EMBEDDING_BACKEND=transformer.
-transformer = ["sentence-transformers>=3.0"]
 
 [project.urls]
 Homepage = "https://github.com/Mounir1200/contextmemory-mcp"

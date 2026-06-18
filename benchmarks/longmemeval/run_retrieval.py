@@ -60,8 +60,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
     parser.add_argument(
         "--backend",
-        choices=["transformer", "hashing"],
-        default="transformer",
+        choices=["fastembed", "hashing"],
+        default="fastembed",
     )
     parser.add_argument(
         "--granularity",

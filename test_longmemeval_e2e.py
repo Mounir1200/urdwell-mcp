@@ -13,7 +13,7 @@ from benchmarks.longmemeval.run_end_to_end import (
     ingest_verbatim_case,
     official_judge_prompt,
 )
-from contextmemory.storage import JsonStore
+from contextmemory.storage import ParquetStore
 
 
 class FakeClient:
@@ -99,7 +99,7 @@ class LongMemEvalEndToEndTests(unittest.TestCase):
         }
 
     def test_ingestion_preserves_event_time_and_answers_from_memory(self):
-        store = JsonStore(Path(self.temp_dir.name) / "store")
+        store = ParquetStore(Path(self.temp_dir.name) / "store")
         client = FakeClient()
 
         logs, usage = ingest_case(
@@ -155,7 +155,7 @@ class LongMemEvalEndToEndTests(unittest.TestCase):
         self.assertEqual(verbatim_workload["minimum_llm_requests"], 4)
 
     def test_verbatim_ingestion_stores_dated_rounds_in_bulk(self):
-        store = JsonStore(Path(self.temp_dir.name) / "verbatim-store")
+        store = ParquetStore(Path(self.temp_dir.name) / "verbatim-store")
 
         logs, usage = ingest_verbatim_case(self._entry(), store)
 

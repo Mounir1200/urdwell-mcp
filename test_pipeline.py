@@ -5,13 +5,13 @@ from unittest.mock import patch
 
 from contextmemory import pipeline
 from contextmemory.models import Memory
-from contextmemory.storage import JsonStore
+from contextmemory.storage import ParquetStore
 
 
 class PipelineArbitrationTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.store = JsonStore(Path(self.temp_dir.name))
+        self.store = ParquetStore(Path(self.temp_dir.name))
 
     def tearDown(self):
         self.temp_dir.cleanup()

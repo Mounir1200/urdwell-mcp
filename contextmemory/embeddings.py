@@ -1,10 +1,8 @@
 """Convert text to vectors for semantic comparison.
 
-Three interchangeable backends produce 384-dimensional vectors for the same
-multilingual MiniLM model, selected with ``CONTEXT_MEMORY_EMBEDDING_BACKEND``:
+Two backends are available through ``CONTEXT_MEMORY_EMBEDDING_BACKEND``:
 
 - ``fastembed`` (default): ONNX runtime, ~0.2 GB, no PyTorch. Recommended.
-- ``transformer``: sentence-transformers + PyTorch (~2 GB). Optional extra.
 - ``hashing``: deterministic, dependency-free, for tests and offline diagnostics.
 """
 
@@ -13,22 +11,20 @@ import math
 import os
 import re
 import unicodedata
+import warnings
 
 _DEFAULT_MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 _MODEL_ENV_VAR = "CONTEXT_MEMORY_EMBEDDING_MODEL"
 _BACKEND_ENV_VAR = "CONTEXT_MEMORY_EMBEDDING_BACKEND"
-_REVISION_ENV_VAR = "CONTEXT_MEMORY_EMBEDDING_REVISION"
-
 _DEFAULT_BACKEND = "fastembed"
-_VALID_BACKENDS = ("fastembed", "transformer", "hashing")
+_VALID_BACKENDS = ("fastembed", "hashing")
 _HASHING_DIMENSIONS = 256
 
 _fastembed_model = None
-_transformer_model = None
 
 
 def model_name() -> str:
-    """Return the embedding model id, shared by the fastembed and torch backends."""
+    """Return the multilingual FastEmbed model id."""
     return os.getenv(_MODEL_ENV_VAR, _DEFAULT_MODEL_NAME)
 
 
@@ -56,24 +52,22 @@ def _get_fastembed_model():
     if _fastembed_model is None:
         from fastembed import TextEmbedding
 
-        _fastembed_model = TextEmbedding(model_name=model_name())
+        selected_model = model_name()
+        # FastEmbed >= 0.6 intentionally uses the model's native mean pooling.
+        # The warning only matters when reusing CLS vectors produced by 0.5.1;
+        # ContextMemory standardizes on mean pooling and documents that migration.
+        mean_pooling_warning = (
+            rf"The model {re.escape(selected_model)} now uses mean pooling "
+            r"instead of CLS embedding\..*"
+        )
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=mean_pooling_warning,
+                category=UserWarning,
+            )
+            _fastembed_model = TextEmbedding(model_name=selected_model)
     return _fastembed_model
-
-
-def _get_transformer_model():
-    """Load sentence-transformers lazily on first use.
-
-    Loading model weights from a remote repository is a supply-chain trust
-    boundary. Set ``CONTEXT_MEMORY_EMBEDDING_REVISION`` to a specific commit
-    hash to pin the weights and protect against a compromised upstream model.
-    """
-    global _transformer_model
-    if _transformer_model is None:
-        from sentence_transformers import SentenceTransformer
-
-        revision = os.getenv(_REVISION_ENV_VAR) or None
-        _transformer_model = SentenceTransformer(model_name(), revision=revision)
-    return _transformer_model
 
 
 def _hashing_embed(text: str) -> list[float]:
@@ -93,10 +87,8 @@ def embed(text: str) -> list[float]:
     backend = backend_name()
     if backend == "hashing":
         return _hashing_embed(text)
-    if backend == "fastembed":
-        vector = next(iter(_get_fastembed_model().embed([text])))
-        return _l2_normalize(vector.tolist())
-    return _get_transformer_model().encode(text, normalize_embeddings=True).tolist()
+    vector = next(iter(_get_fastembed_model().embed([text])))
+    return _l2_normalize(vector.tolist())
 
 
 def embed_many(texts: list[str], batch_size: int = 32) -> list[list[float]]:
@@ -104,15 +96,8 @@ def embed_many(texts: list[str], batch_size: int = 32) -> list[list[float]]:
     backend = backend_name()
     if backend == "hashing":
         return [_hashing_embed(text) for text in texts]
-    if backend == "fastembed":
-        vectors = _get_fastembed_model().embed(texts, batch_size=batch_size)
-        return [_l2_normalize(vector.tolist()) for vector in vectors]
-    return _get_transformer_model().encode(
-        texts,
-        batch_size=batch_size,
-        normalize_embeddings=True,
-        show_progress_bar=False,
-    ).tolist()
+    vectors = _get_fastembed_model().embed(texts, batch_size=batch_size)
+    return [_l2_normalize(vector.tolist()) for vector in vectors]
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:

@@ -9,7 +9,7 @@ import unicodedata
 
 from contextmemory import embeddings
 from contextmemory.models import Memory
-from contextmemory.storage import JsonStore
+from contextmemory.storage import ParquetStore
 
 # Tune this threshold empirically for the selected embedding model.
 SIMILARITY_THRESHOLD = 0.55
@@ -18,7 +18,7 @@ ARBITRATION_ACTIONS = {"ADD", "IGNORE", "EXPIRE"}
 
 
 def find_similar_memories(
-    store: JsonStore,
+    store: ParquetStore,
     embedding: list[float],
     k: int = 5,
     threshold: float = SIMILARITY_THRESHOLD,
@@ -116,7 +116,7 @@ def _arbitration_report(
 
 
 def process_memory(
-    store: JsonStore,
+    store: ParquetStore,
     new_memory: Memory,
     decision: str | None = None,
     target_id: str | None = None,

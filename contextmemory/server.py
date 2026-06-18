@@ -15,7 +15,7 @@ from mcp.server.fastmcp import FastMCP
 from contextmemory import embeddings
 from contextmemory import pipeline
 from contextmemory.models import Memory, VALID_MEMORY_TYPES
-from contextmemory.storage import JsonStore
+from contextmemory.storage import ParquetStore
 
 # Defensive ceilings on tool inputs. Memories are short sentences, so these are
 # generous guardrails against accidental or hostile oversized payloads, not
@@ -29,7 +29,7 @@ MAX_CONFIDENCE = 1.0
 
 
 mcp = FastMCP("ContextMemory")
-store = JsonStore()
+store = ParquetStore()
 
 
 @mcp.tool()

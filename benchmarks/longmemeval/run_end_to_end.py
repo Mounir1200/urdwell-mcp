@@ -28,7 +28,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from contextmemory import embeddings
 from contextmemory import pipeline
 from contextmemory.models import Memory, VALID_MEMORY_TYPES
-from contextmemory.storage import JsonStore
+from contextmemory.storage import ParquetStore
 
 from benchmarks.longmemeval.llm_client import ChatClient, ChatResponse
 from benchmarks.longmemeval.run_retrieval import (
@@ -77,8 +77,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--backend",
-        choices=["transformer", "hashing"],
-        default="transformer",
+        choices=["fastembed", "hashing"],
+        default="fastembed",
     )
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--threshold", type=float, default=pipeline.SIMILARITY_THRESHOLD)
@@ -304,7 +304,7 @@ def arbitrate_memory(
 
 def ingest_case(
     entry: dict[str, Any],
-    store: JsonStore,
+    store: ParquetStore,
     extractor: ChatClient,
     cache_dir: Path,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
@@ -395,7 +395,7 @@ def session_rounds(session: list[dict[str, Any]]) -> list[tuple[int, list[dict]]
 
 def ingest_verbatim_case(
     entry: dict[str, Any],
-    store: JsonStore,
+    store: ParquetStore,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """Store dated conversational rounds without an extraction LLM."""
     memories: list[Memory] = []
@@ -436,7 +436,7 @@ def ingest_verbatim_case(
 
 
 def retrieve_memories(
-    store: JsonStore,
+    store: ParquetStore,
     query: str,
     *,
     k: int,
@@ -530,7 +530,7 @@ def answer_without_context_memory(
 
 def answer_case(
     entry: dict[str, Any],
-    store: JsonStore,
+    store: ParquetStore,
     reader: ChatClient,
     *,
     top_k: int,
@@ -856,7 +856,7 @@ def main() -> None:
             if args.system == "context-memory":
                 store_path = stores_dir / question_id
                 reset_case_store(store_path, run_dir)
-                store = JsonStore(store_path)
+                store = ParquetStore(store_path)
                 if args.ingestion_mode == "llm":
                     ingestion, extraction_usage = ingest_case(
                         entry,

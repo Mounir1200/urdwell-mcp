@@ -1,6 +1,10 @@
 import math
 import os
+import sys
+import types
 import unittest
+import warnings
+from unittest import mock
 
 from contextmemory import embeddings
 
@@ -24,6 +28,11 @@ class BackendSelectionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             embeddings.backend_name()
 
+    def test_pytorch_backend_is_not_available(self):
+        os.environ["CONTEXT_MEMORY_EMBEDDING_BACKEND"] = "transformer"
+        with self.assertRaises(ValueError):
+            embeddings.backend_name()
+
     def test_hashing_embed_is_deterministic_and_normalized(self):
         os.environ["CONTEXT_MEMORY_EMBEDDING_BACKEND"] = "hashing"
         first = embeddings.embed("Mounir likes coffee")
@@ -39,6 +48,39 @@ class BackendSelectionTests(unittest.TestCase):
         self.assertAlmostEqual(
             embeddings.cosine_similarity([1.0, 0.0], [1.0, 0.0]), 1.0
         )
+
+    def test_default_model_is_multilingual_paraphrase_minilm(self):
+        self.assertEqual(
+            embeddings._DEFAULT_MODEL_NAME,
+            "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        )
+
+    def test_fastembed_mean_pooling_migration_warning_is_suppressed(self):
+        class FakeTextEmbedding:
+            def __init__(self, model_name):
+                self.model_name = model_name
+                warnings.warn(
+                    f"The model {model_name} now uses mean pooling instead of "
+                    "CLS embedding. In order to preserve the previous behaviour, "
+                    "consider either pinning fastembed version to 0.5.1 or using "
+                    "`add_custom_model` functionality.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+
+        previous_model = embeddings._fastembed_model
+        embeddings._fastembed_model = None
+        fake_fastembed = types.SimpleNamespace(TextEmbedding=FakeTextEmbedding)
+        try:
+            with mock.patch.dict(sys.modules, {"fastembed": fake_fastembed}):
+                with warnings.catch_warnings(record=True) as captured:
+                    warnings.simplefilter("always")
+                    loaded = embeddings._get_fastembed_model()
+
+            self.assertEqual(loaded.model_name, embeddings.model_name())
+            self.assertEqual(captured, [])
+        finally:
+            embeddings._fastembed_model = previous_model
 
 
 if __name__ == "__main__":

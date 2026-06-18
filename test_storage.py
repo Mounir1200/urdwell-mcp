@@ -1,10 +1,14 @@
+import json
 import os
 import tempfile
 import unittest
 from pathlib import Path
 
+import pyarrow.parquet as pq
+
 from contextmemory import storage
-from contextmemory.storage import JsonStore
+from contextmemory.models import Memory
+from contextmemory.storage import ParquetStore
 
 
 class DefaultDataDirTests(unittest.TestCase):
@@ -18,7 +22,7 @@ class DefaultDataDirTests(unittest.TestCase):
 
     def test_explicit_data_dir_argument_wins(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            store = JsonStore(Path(temp_dir) / "explicit")
+            store = ParquetStore(Path(temp_dir) / "explicit")
             self.assertEqual(store.dir, Path(temp_dir) / "explicit")
 
     def test_environment_variable_overrides_default(self):
@@ -26,13 +30,74 @@ class DefaultDataDirTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             os.environ[storage.DATA_DIR_ENV_VAR] = temp_dir
             try:
-                store = JsonStore()
+                store = ParquetStore()
                 self.assertEqual(store.dir, Path(temp_dir))
             finally:
                 if previous is None:
                     os.environ.pop(storage.DATA_DIR_ENV_VAR, None)
                 else:
                     os.environ[storage.DATA_DIR_ENV_VAR] = previous
+
+
+class ParquetStoreTests(unittest.TestCase):
+    def test_memory_and_embedding_share_one_typed_parquet_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = ParquetStore(Path(temp_dir))
+            memory = Memory(content="La base utilise PostgreSQL.", type="fact")
+
+            store.add(memory, [0.25, 0.5])
+
+            self.assertEqual(store.get(memory.id), memory)
+            self.assertEqual(store.get_embedding(memory.id), [0.25, 0.5])
+            self.assertEqual(pq.read_table(store.memories_path).num_rows, 1)
+            self.assertFalse((Path(temp_dir) / "memories.json").exists())
+            self.assertFalse((Path(temp_dir) / "embeddings.json").exists())
+
+    def test_archive_round_trip_uses_parquet(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = ParquetStore(Path(temp_dir))
+            store.append_archive("user", "Texte exact", "session-1")
+
+            self.assertEqual(store.read_archive(1)[0]["content"], "Texte exact")
+            self.assertEqual(pq.read_table(store.archive_path).num_rows, 1)
+
+    def test_legacy_json_is_migrated_without_deleting_recovery_copy(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            memory = Memory(content="Legacy memory", type="fact")
+            memories_json = data_dir / "memories.json"
+            embeddings_json = data_dir / "embeddings.json"
+            archive_jsonl = data_dir / "archive.jsonl"
+            memories_json.write_text(
+                json.dumps([memory.to_dict()]),
+                encoding="utf-8",
+            )
+            embeddings_json.write_text(
+                json.dumps({memory.id: [0.1, 0.2]}),
+                encoding="utf-8",
+            )
+            archive_jsonl.write_text(
+                json.dumps(
+                    {
+                        "ts": "2026-01-01T00:00:00+00:00",
+                        "role": "user",
+                        "content": "Legacy archive",
+                        "session": None,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            store = ParquetStore(data_dir)
+
+            self.assertEqual(store.get(memory.id), memory)
+            self.assertAlmostEqual(store.get_embedding(memory.id)[0], 0.1)
+            self.assertEqual(store.read_archive(1)[0]["content"], "Legacy archive")
+            self.assertTrue(store.memories_path.exists())
+            self.assertTrue(store.archive_path.exists())
+            self.assertTrue(memories_json.exists())
+            self.assertTrue(archive_jsonl.exists())
 
 
 if __name__ == "__main__":
