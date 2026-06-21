@@ -360,18 +360,45 @@ python benchmarks\longmemeval\run_end_to_end.py `
   --ranking hybrid --reuse-stores-from e2e-full
 ```
 
-**End-to-end QA accuracy** (Oracle, 500 cases, LLM ingestion, local Gemma judge):
+**End-to-end results** (Oracle, 500 cases, LLM ingestion, local Gemma judge).
+Run-level totals for both rankings:
 
-| Question type | Cosine (`e2e-full`) | Hybrid (`e2e-full-rrf`) |
+| Metric | Cosine (`e2e-full`) | Hybrid (`e2e-full-rrf`) |
 |---|---:|---:|
-| Overall accuracy | 0.528 | 0.528 |
-| Knowledge update | 0.792 | 0.861 (+5 cases) |
-| Temporal reasoning | 0.402 | 0.417 (+2 cases) |
-| Multi-session | 0.438 | 0.397 (−5 cases) |
-| Runtime | ~60 h (full ingestion) | ~8.8 h (reused stores) |
+| Completed / failed cases | 500 / 0 | 500 / 0 |
+| Sessions replayed | 948 | 948 (reused) |
+| Turns replayed | 10,960 | 10,960 |
+| Approximate source tokens | 3,450,176 | 3,450,176 |
+| Extraction requests | 3,456 | 0 (stores reused) |
+| Answer generation requests | 478 | 478 |
+| Judge requests | 500 | 500 |
+| Elapsed time | 216,007 s (~60 h) | 31,593 s (~8.8 h) |
+| **Overall accuracy** | **0.528** | **0.528** |
 
-Hybrid redistributes correct answers (+7 / −7) for **zero net change** in overall
-accuracy.
+Accuracy by question type (Δ in correctly answered cases):
+
+| Question type | Cosine | Hybrid | Δ | Count |
+|---|---:|---:|---:|---:|
+| Abstention | 0.9667 | 0.9667 | 0 | 30 |
+| Knowledge update | 0.7917 | 0.8611 | +5 | 72 |
+| Multi-session | 0.4380 | 0.3967 | −5 | 121 |
+| Single-session assistant | 0.1250 | 0.1071 | −1 | 56 |
+| Single-session preference | 0.6000 | 0.5667 | −1 | 30 |
+| Single-session user | 0.7656 | 0.7656 | 0 | 64 |
+| Temporal reasoning | 0.4016 | 0.4173 | +2 | 127 |
+
+Token usage for the cosine run (the hybrid run is identical except extraction is
+skipped by reusing stores):
+
+| Stage | Prompt tokens | Completion tokens | Requests |
+|---|---:|---:|---:|
+| Extraction + arbitration | 4,400,807 | 244,254 | 3,456 |
+| Answer generation | 574,244 | 65,239 | 478 |
+| Local judging | 145,225 | 1,000 | 500 |
+
+Hybrid redistributes correct answers (+7 / −7) for **zero net change** overall,
+and reaches the same accuracy in ~8.8 h instead of ~60 h by reusing the cosine
+run's stores (no re-extraction).
 
 ### A single case, end to end
 
@@ -487,7 +514,15 @@ benchmarks\longmemeval\reports\e2e\<run-name>\
 Each case file contains the ingested memories, retrieved evidence, generated
 answer, and judge decision.
 
-## Results Obtained
+## Results — LongMemEval-S (verbatim ingestion)
+
+This is a **different experiment** from the Oracle runs in the Hybrid Ranking
+section above. LongMemEval-S stresses retrieval against long distractor histories
+(23,867 sessions) with verbatim ingestion (raw dated rounds, no extraction LLM);
+Oracle instead isolates extraction and reasoning over evidence-only sessions with
+LLM ingestion. The two overall accuracies — **0.648 on S** here, **0.528 on
+Oracle** above — are therefore not directly comparable: different dataset and
+different ingestion mode.
 
 Full local LongMemEval-S run:
 
