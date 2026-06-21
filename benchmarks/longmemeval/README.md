@@ -50,6 +50,91 @@ complete LongMemEval QA evaluation.
 
 See `RESULTS.md` for the current MiniLM baseline and threshold calibration.
 
+## Ranking Comparison: Cosine vs Hybrid (BM25 + RRF)
+
+ContextMemory ranks retrieved memories one of two ways, selectable with
+`--ranking` on the end-to-end runner and used by the production
+`search_memory` server tool.
+
+- **`cosine`** — pure dense retrieval. Each memory is scored by the cosine
+  similarity between its embedding and the query embedding, and the top *k* win.
+  Captures semantic similarity, but can under-rank exact-term matches.
+- **`hybrid`** — dense cosine fused with lexical **BM25**.
+  - **BM25** is a classic bag-of-words relevance function. It scores a memory by
+    how many query *terms* it contains, weighting rare terms more (IDF) and
+    saturating repeated terms. It rescues exact matches on names, identifiers,
+    and rare words that an embedding smooths over.
+  - **RRF (Reciprocal Rank Fusion)** merges the cosine ranking and the BM25
+    ranking by summing `1 / (k + rank)` per memory across both lists, without
+    comparing their incommensurable raw scores. Hybrid is therefore
+    *cosine **plus** BM25, fused by RRF* — not an alternative to cosine. The
+    abstention decision stays pure cosine, so specificity is unchanged by
+    construction.
+
+### What we measured
+
+Two comparisons on the cleaned Oracle dataset with identical stacks (FastEmbed
+multilingual MiniLM, `gemma4:26b` locally via Ollama, top-k 5, threshold 0,
+seed 42, `pool_size` 50, `rrf_k` 60) — only the ranking changed.
+
+**1. Retrieval quality** — `run_retrieval.py` vs `run_retrieval_hybrid.py`,
+419 answerable questions, no LLM involved:
+
+| Metric (Standard ranking) | Cosine | Hybrid | Δ |
+|---|---:|---:|---:|
+| recall_any@1 | 0.5513 | 0.6038 | **+5.3 pt** |
+| ndcg_any@5 | 0.6966 | 0.7619 | **+6.5 pt** |
+| recall_all@5 | 0.6945 | 0.7589 | **+6.4 pt** |
+| recall_any@5 | 0.9451 | 0.9666 | +2.2 pt |
+| recall_any@10 | 0.9952 | 0.9928 | ≈ (ceiling) |
+
+Per-type NDCG@5 gains concentrate where lexical signal helps most:
+temporal-reasoning +10 pt (0.622 → 0.722), multi-session +6.3 pt, and
+knowledge-update +5.1 pt.
+
+**2. End-to-end QA accuracy** — `run_end_to_end.py`, 500 cases, local judge:
+
+| | Cosine (`e2e-full`) | Hybrid (`e2e-full-rrf`) |
+|---|---:|---:|
+| Overall accuracy | 0.528 | 0.528 |
+| knowledge-update | 0.792 | 0.861 (+5 cases) |
+| temporal-reasoning | 0.402 | 0.417 (+2 cases) |
+| multi-session | 0.438 | 0.397 (−5 cases) |
+| Runtime | ~60 h (full LLM ingestion) | ~8.8 h (reused stores) |
+
+Hybrid redistributes correct answers (+7 / −7) for **zero net change** in
+overall accuracy.
+
+### Conclusion
+
+- **Hybrid (BM25 + RRF) is a clear retrieval win** — better rank-1 and ordering,
+  with no measured downside. It is already the default in the production
+  `search_memory` server tool.
+- **On Oracle, retrieval is not the QA bottleneck.** Better-ranked, more complete
+  evidence did not raise answer accuracy; the reader (`gemma4:26b`) is the limit,
+  especially for multi-session synthesis. Oracle also under-tests ranking because
+  most cases hold ≤ 5 memories — tiny pools leave little to reorder.
+- **The next levers are downstream**, not the ranker: the reader model / answer
+  prompt, the extraction step (assistant-turn content is under-captured —
+  `single-session-assistant` QA ≈ 11 %), and the fixed 0.55 abstention threshold,
+  which caps recall for both rankers alike.
+- The local `gemma4:26b` judge is for internal comparison only; it is not
+  comparable with the official GPT-4o judge.
+
+### Reproducing cheaply
+
+Re-rank an existing run's stores without paying the LLM extraction cost again
+(extraction is ~78 % of runtime), via `--reuse-stores-from` and `--ranking`:
+
+```powershell
+python benchmarks\longmemeval\run_end_to_end.py `
+  --dataset benchmarks\longmemeval\longmemeval_oracle.json `
+  --run-name e2e-full-rrf `
+  --reader-model gemma4:26b --judge-model gemma4:26b `
+  --base-url http://127.0.0.1:11434/v1 --reasoning-effort none `
+  --ingestion-mode llm --ranking hybrid --reuse-stores-from e2e-full
+```
+
 ## End-to-End Evaluation
 
 The end-to-end runner performs the complete memory workflow:

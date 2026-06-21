@@ -39,6 +39,7 @@ The current implementation focuses on:
 | Structured memory model | Done |
 | Bi-temporal invalidation | Done |
 | Semantic embeddings with MiniLM | Done |
+| Hybrid BM25 + cosine retrieval ranking (RRF) | Done |
 | Lightweight ONNX embedding backend (fastembed) | Done |
 | Typed Parquet persistence with automatic JSON migration | Done |
 | Deterministic hashing backend for tests | Done |
@@ -202,7 +203,7 @@ CONTEXT_MEMORY_EMBEDDING_BACKEND=hashing uv run python -m unittest -v
 |---|---|
 | `save_memory` | Stores a memory, or asks for arbitration when a similar active memory exists. |
 | `archive_exchange` | Appends an exact exchange to the raw archive without modifying previous entries. |
-| `search_memory` | Searches active memories semantically and returns scored results. |
+| `search_memory` | Searches active memories with hybrid semantic + lexical (BM25 + RRF) ranking and returns scored results. |
 | `list_memories` | Lists memories by type. |
 | `check_conflicts` | Detects potential contradictions without writing anything. |
 | `read_archive` | Reads the most recent raw archive entries. |
@@ -293,6 +294,117 @@ Current retrieval baseline on the cleaned Oracle split:
 Adding session dates improved rank-one retrieval and temporal-reasoning recall,
 while top-five recall stayed nearly unchanged. See
 `benchmarks/longmemeval/RESULTS.md` for details.
+
+## Hybrid Ranking: Cosine vs BM25 + RRF
+
+Memories can be ranked two ways, selected with `--ranking` on the end-to-end
+runner and used by the production `search_memory` tool:
+
+- **`cosine`** — pure dense retrieval. Each memory is scored by the cosine
+  similarity between its embedding and the query, and the top *k* win. It
+  captures semantic similarity but can under-rank exact-term matches.
+- **`hybrid`** — dense cosine fused with lexical **BM25**.
+  - **BM25** is a classic bag-of-words relevance function. It scores a memory by
+    how many query *terms* it contains, weighting rare terms more (IDF) and
+    saturating repeated ones. It rescues exact matches on names, identifiers,
+    and rare words that an embedding smooths over.
+  - **RRF (Reciprocal Rank Fusion)** merges the cosine and BM25 rankings by
+    summing `1 / (k + rank)` per memory across both lists, without comparing
+    their incommensurable raw scores. Hybrid is therefore *cosine **plus** BM25,
+    fused by RRF* — not an alternative to cosine. The abstention decision stays
+    pure cosine, so specificity is unchanged by construction.
+
+The two were compared on the cleaned Oracle split with identical stacks
+(FastEmbed MiniLM, `gemma4:26b` locally, top-k 5, threshold 0, seed 42); only the
+ranking changed.
+
+The retrieval-quality comparison (no LLM, runs in a few minutes):
+
+```bash
+uv run python benchmarks/longmemeval/run_retrieval.py        --limit 500
+uv run python benchmarks/longmemeval/run_retrieval_hybrid.py --limit 500
+```
+
+**Retrieval quality** (419 answerable questions):
+
+| Metric | Cosine | Hybrid | Δ |
+|---|---:|---:|---:|
+| Recall any @1 | 0.5513 | 0.6038 | **+5.3 pt** |
+| NDCG any @5 | 0.6966 | 0.7619 | **+6.5 pt** |
+| Recall all @5 | 0.6945 | 0.7589 | **+6.4 pt** |
+| Recall any @5 | 0.9451 | 0.9666 | +2.2 pt |
+
+Per-type NDCG@5 gains concentrate where lexical signal helps most:
+temporal-reasoning +10 pt, multi-session +6.3 pt, knowledge-update +5.1 pt.
+
+The end-to-end comparison — first the cosine baseline (a full LLM-ingestion run),
+then the hybrid re-rank that reuses the baseline's stores so extraction is not
+paid twice:
+
+```powershell
+# Cosine baseline — ~60 h (full LLM extraction of 948 sessions)
+python benchmarks\longmemeval\run_end_to_end.py `
+  --dataset benchmarks\longmemeval\longmemeval_oracle.json `
+  --run-name e2e-full --system context-memory --ingestion-mode llm `
+  --reader-model gemma4:26b --judge-model gemma4:26b `
+  --base-url http://127.0.0.1:11434/v1 --reasoning-effort none `
+  --top-k 5 --threshold 0            # --ranking cosine is the default
+
+# Hybrid re-rank — ~8.8 h (reuses e2e-full's stores, no re-extraction)
+python benchmarks\longmemeval\run_end_to_end.py `
+  --dataset benchmarks\longmemeval\longmemeval_oracle.json `
+  --run-name e2e-full-rrf --system context-memory --ingestion-mode llm `
+  --reader-model gemma4:26b --judge-model gemma4:26b `
+  --base-url http://127.0.0.1:11434/v1 --reasoning-effort none `
+  --top-k 5 --threshold 0 `
+  --ranking hybrid --reuse-stores-from e2e-full
+```
+
+**End-to-end QA accuracy** (Oracle, 500 cases, LLM ingestion, local Gemma judge):
+
+| Question type | Cosine (`e2e-full`) | Hybrid (`e2e-full-rrf`) |
+|---|---:|---:|
+| Overall accuracy | 0.528 | 0.528 |
+| Knowledge update | 0.792 | 0.861 (+5 cases) |
+| Temporal reasoning | 0.402 | 0.417 (+2 cases) |
+| Multi-session | 0.438 | 0.397 (−5 cases) |
+| Runtime | ~60 h (full ingestion) | ~8.8 h (reused stores) |
+
+Hybrid redistributes correct answers (+7 / −7) for **zero net change** in overall
+accuracy.
+
+### A single case, end to end
+
+One of the 500 Oracle cases (`ba61f0b9`, a knowledge-update question) shows the
+whole pipeline — including how a later fact supersedes an earlier one:
+
+- **Question** (asked 2023/08/09): *How many women are on the team led by my
+  former manager Rachel?*
+- **Reference answer:** 6
+- **Retrieved memories** (hybrid ranking, cosine score in brackets):
+  - `[0.75]` Rachel's former team consisted of **6 women out of 10** people.
+    *(valid_from 2023/07/20; its `supersedes` field points to the 50 % memory below)*
+  - `[0.73]` Rachel leads a team of 10 people, **50 % of whom are women**.
+    *(expired: `valid_until` 2023/07/20 — the moment it was superseded)*
+  - `[0.51]` The women on Rachel's team include Sarah, Emily, Maya, Sofia, …
+  - `[0.31]` *(distractor)* A seminar noted women hold only 25 % of executive roles.
+- **Model answer:** reasons over the conflict — the "50 % / 5" memory was
+  **superseded** by the "6 out of 10" memory (the supersession is recorded in the
+  memories' `supersedes` / `valid_until` fields, not inferred) — and answers **6**.
+- **Judge:** correct.
+
+This is the knowledge-update ability in action: retrieval surfaces both the old
+and the new fact, and the reader resolves the update from the memories' temporal
+metadata.
+
+**Conclusion.** Hybrid (BM25 + RRF) is a clear retrieval win — better rank-one
+and ordering, with no measured downside — and is the default in the
+`search_memory` server tool. But on Oracle, retrieval is not the QA bottleneck:
+better-ranked, more complete evidence did not raise answer accuracy, because the
+reader is the limit (especially multi-session synthesis) and most Oracle cases
+hold ≤ 5 memories, leaving little to reorder. The next levers are downstream —
+the reader and the extraction step — and the fixed 0.55 abstention threshold,
+which caps recall for both rankers alike.
 
 ## Local End-to-End Experiment With Ollama and Gemma
 
