@@ -27,6 +27,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from contextmemory import embeddings
 from contextmemory import pipeline
+from contextmemory import ranking
 from contextmemory.models import Memory, VALID_MEMORY_TYPES
 from contextmemory.storage import ParquetStore
 
@@ -79,6 +80,33 @@ def parse_args() -> argparse.Namespace:
         "--backend",
         choices=["fastembed", "hashing"],
         default="fastembed",
+    )
+    parser.add_argument(
+        "--ranking",
+        choices=["cosine", "hybrid"],
+        default="cosine",
+        help="Memory retrieval ranking: dense cosine, or hybrid BM25+cosine (RRF).",
+    )
+    parser.add_argument(
+        "--pool-size",
+        type=int,
+        default=ranking.DEFAULT_POOL_SIZE,
+        help="Hybrid only: top-cosine candidates the lexical leg may reorder.",
+    )
+    parser.add_argument(
+        "--rrf-k",
+        type=int,
+        default=ranking.RRF_K,
+        help="Hybrid only: Reciprocal Rank Fusion constant.",
+    )
+    parser.add_argument(
+        "--reuse-stores-from",
+        default=None,
+        help=(
+            "Reuse per-case memory stores from an existing run name instead of "
+            "re-ingesting. Skips extraction and arbitration; only retrieval, "
+            "answer generation, and judging run again."
+        ),
     )
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--threshold", type=float, default=pipeline.SIMILARITY_THRESHOLD)
@@ -442,21 +470,44 @@ def retrieve_memories(
     k: int,
     threshold: float,
     include_expired: bool,
+    strategy: str = "cosine",
+    pool_size: int = ranking.DEFAULT_POOL_SIZE,
+    rrf_k: int = ranking.RRF_K,
 ) -> list[dict[str, Any]]:
     query_embedding = embeddings.embed(query)
-    scored = []
     stored_embeddings = store.all_embeddings()
-    for memory in store.all(active_only=not include_expired):
-        vector = stored_embeddings.get(memory.id)
-        if vector is None:
-            continue
-        score = embeddings.cosine_similarity(query_embedding, vector)
-        scored.append((memory, score))
-    scored.sort(key=lambda item: item[1], reverse=True)
+    candidates = [
+        (memory, stored_embeddings[memory.id])
+        for memory in store.all(active_only=not include_expired)
+        if memory.id in stored_embeddings
+    ]
+
+    if strategy == "hybrid":
+        # Dense + lexical fusion (RRF). Abstention stays a pure cosine decision,
+        # so ``threshold`` keeps the same meaning as the cosine path below.
+        scored = ranking.hybrid_rank(
+            query,
+            query_embedding,
+            candidates,
+            k,
+            cosine_floor=threshold,
+            pool_size=pool_size,
+            rrf_k=rrf_k,
+        )
+    else:
+        ranked = sorted(
+            (
+                (memory, embeddings.cosine_similarity(query_embedding, vector))
+                for memory, vector in candidates
+            ),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        scored = [pair for pair in ranked[:k] if pair[1] >= threshold]
+
     return [
         {**memory.to_dict(), "score": round(score, 4)}
-        for memory, score in scored[:k]
-        if score >= threshold
+        for memory, score in scored
     ]
 
 
@@ -536,6 +587,9 @@ def answer_case(
     top_k: int,
     threshold: float,
     include_expired: bool,
+    strategy: str = "cosine",
+    pool_size: int = ranking.DEFAULT_POOL_SIZE,
+    rrf_k: int = ranking.RRF_K,
 ) -> tuple[str, list[dict[str, Any]], str, ChatResponse | None]:
     memories = retrieve_memories(
         store,
@@ -543,6 +597,9 @@ def answer_case(
         k=top_k,
         threshold=threshold,
         include_expired=include_expired,
+        strategy=strategy,
+        pool_size=pool_size,
+        rrf_k=rrf_k,
     )
     prompt = answer_prompt(entry, memories)
     if not memories:
@@ -813,6 +870,7 @@ def main() -> None:
     if (
         args.system == "context-memory"
         and args.ingestion_mode == "llm"
+        and not args.reuse_stores_from
         and workload["unique_sessions"] > 5000
         and not args.allow_large_llm_ingestion
     ):
@@ -828,6 +886,15 @@ def main() -> None:
     cases_dir = run_dir / "cases"
     stores_dir = run_dir / "stores"
     cache_dir = DEFAULT_RUNS_DIR / "_extraction_cache"
+    reuse_stores_dir = (
+        DEFAULT_RUNS_DIR / args.reuse_stores_from / "stores"
+        if args.reuse_stores_from
+        else None
+    )
+    if reuse_stores_dir is not None and not reuse_stores_dir.is_dir():
+        raise RuntimeError(
+            f"--reuse-stores-from: no stores directory at {reuse_stores_dir}"
+        )
     existing_cases = list(cases_dir.glob("*.json")) if cases_dir.exists() else []
     if existing_cases and not args.resume:
         raise RuntimeError(
@@ -854,21 +921,37 @@ def main() -> None:
         case_started = time.perf_counter()
         try:
             if args.system == "context-memory":
-                store_path = stores_dir / question_id
-                reset_case_store(store_path, run_dir)
-                store = ParquetStore(store_path)
-                if args.ingestion_mode == "llm":
-                    ingestion, extraction_usage = ingest_case(
-                        entry,
-                        store,
-                        extractor,
-                        cache_dir,
-                    )
+                if reuse_stores_dir is not None:
+                    # Reuse the memories extracted by a previous run; only the
+                    # retrieval/answer/judge stages run again.
+                    store_path = reuse_stores_dir / question_id
+                    if not store_path.is_dir():
+                        raise RuntimeError(
+                            f"no reusable store for {question_id} at {store_path}"
+                        )
+                    store = ParquetStore(store_path)
+                    ingestion = []
+                    extraction_usage = {
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "requests": 0,
+                    }
                 else:
-                    ingestion, extraction_usage = ingest_verbatim_case(
-                        entry,
-                        store,
-                    )
+                    store_path = stores_dir / question_id
+                    reset_case_store(store_path, run_dir)
+                    store = ParquetStore(store_path)
+                    if args.ingestion_mode == "llm":
+                        ingestion, extraction_usage = ingest_case(
+                            entry,
+                            store,
+                            extractor,
+                            cache_dir,
+                        )
+                    else:
+                        ingestion, extraction_usage = ingest_verbatim_case(
+                            entry,
+                            store,
+                        )
                 hypothesis, retrieved, prompt, answer_response = answer_case(
                     entry,
                     store,
@@ -876,6 +959,9 @@ def main() -> None:
                     top_k=args.top_k,
                     threshold=args.threshold,
                     include_expired=args.include_expired,
+                    strategy=args.ranking,
+                    pool_size=args.pool_size,
+                    rrf_k=args.rrf_k,
                 )
                 memory_counts = {
                     "active": len(store.all(active_only=True)),
@@ -971,6 +1057,10 @@ def main() -> None:
             "judge_model": judge.model,
             "base_url": args.base_url,
             "embedding_backend": args.backend,
+            "ranking": args.ranking,
+            "pool_size": args.pool_size,
+            "rrf_k": args.rrf_k,
+            "reuse_stores_from": args.reuse_stores_from,
             "top_k": args.top_k,
             "threshold": args.threshold,
             "include_expired": args.include_expired,
