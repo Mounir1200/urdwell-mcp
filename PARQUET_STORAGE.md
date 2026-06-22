@@ -1,6 +1,6 @@
 # Stockage Parquet
 
-ContextMemory stocke désormais ses données localement avec PyArrow au format
+UrdWell stocke désormais ses données localement avec PyArrow au format
 Parquet. Depuis le dépôt, la dépendance nécessaire s'installe avec :
 
 ```powershell
@@ -25,8 +25,8 @@ depuis le cache local.
 Configuration disponible :
 
 ```powershell
-$env:CONTEXT_MEMORY_EMBEDDING_BACKEND = "fastembed"
-$env:CONTEXT_MEMORY_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+$env:URDWELL_EMBEDDING_BACKEND = "fastembed"
+$env:URDWELL_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 ```
 
 Ces valeurs sont déjà les valeurs par défaut. Le backend `hashing` reste
@@ -38,7 +38,7 @@ vecteurs de production.
 > pas. Si les anciennes données ont été produites avec un autre modèle, elles
 > doivent être ré-embeddées avant d'effectuer des recherches fiables.
 
-FastEmbed 0.8 exécute ce modèle avec son mean pooling natif. ContextMemory
+FastEmbed 0.8 exécute ce modèle avec son mean pooling natif. UrdWell
 accepte explicitement ce comportement et masque uniquement l'avertissement de
 migration correspondant au démarrage. Les embeddings CLS créés avec FastEmbed
 0.5.1 appartiennent à un autre espace vectoriel : ils doivent être régénérés et
@@ -51,8 +51,15 @@ ne doivent pas être mélangés avec les nouveaux vecteurs mean pooling.
   même ligne : identifiant, contenu, type, source, dates de validité, confiance,
   relation de remplacement et vecteur `float32`.
 
-Les fichiers sont placés dans `CONTEXT_MEMORY_DATA_DIR`, ou dans le dossier de
+Les fichiers sont placés dans `URDWELL_DATA_DIR`, ou dans le dossier de
 données utilisateur par défaut.
+
+Depuis le renommage en UrdWell 0.3, un dossier ContextMemory existant est
+réutilisé automatiquement lorsque le nouveau dossier UrdWell n'existe pas. Les
+variables historiques `CONTEXT_MEMORY_DATA_DIR`,
+`CONTEXT_MEMORY_EMBEDDING_BACKEND` et `CONTEXT_MEMORY_EMBEDDING_MODEL` restent
+acceptées pendant la transition, avec une priorité donnée aux variables
+`URDWELL_*`.
 
 ## Flux
 

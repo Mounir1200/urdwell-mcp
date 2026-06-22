@@ -1,0 +1,194 @@
+name: CI and release
+
+on:
+  push:
+    branches:
+      - Mounir_staging
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - Mounir_staging
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUTF8: "1"
+  URDWELL_EMBEDDING_BACKEND: hashing
+
+jobs:
+  test:
+    name: Test Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+        python-version:
+          - "3.12"
+          - "3.13"
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install the package
+        run: python -m pip install .
+
+      - name: Run the test suite
+        run: python -m unittest discover -v
+
+  validate_release:
+    name: Validate release tag
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    outputs:
+      package_name: ${{ steps.metadata.outputs.package_name }}
+      version: ${{ steps.metadata.outputs.version }}
+
+    steps:
+      - name: Check out the complete history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Verify that the tagged commit belongs to Mounir_staging
+        shell: bash
+        run: |
+          git fetch --no-tags origin \
+            "Mounir_staging:refs/remotes/origin/Mounir_staging"
+          if ! git merge-base --is-ancestor \
+            "$GITHUB_SHA" "refs/remotes/origin/Mounir_staging"; then
+            echo "Release tags must point to a commit from Mounir_staging." >&2
+            exit 1
+          fi
+
+      - name: Verify version metadata
+        id: metadata
+        shell: bash
+        run: |
+          package_name="$(python -c "import tomllib; data = tomllib.load(open('pyproject.toml', 'rb')); print(data['project']['name'])")"
+          package_version="$(python -c "import tomllib; data = tomllib.load(open('pyproject.toml', 'rb')); print(data['project']['version'])")"
+          import_name="$(python -c "import tomllib; data = tomllib.load(open('pyproject.toml', 'rb')); package = data['tool']['hatch']['build']['targets']['wheel']['packages'][0]; print(package.replace('/', '.').replace(chr(92), '.'))")"
+          runtime_version="$(python -c "import importlib; print(importlib.import_module('$import_name').__version__)")"
+          tag_version="${GITHUB_REF_NAME#v}"
+
+          if [[ "$tag_version" != "$package_version" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match pyproject version $package_version." >&2
+            exit 1
+          fi
+          if [[ "$runtime_version" != "$package_version" ]]; then
+            echo "$import_name.__version__ ($runtime_version) does not match pyproject version $package_version." >&2
+            exit 1
+          fi
+
+          echo "package_name=$package_name" >> "$GITHUB_OUTPUT"
+          echo "version=$package_version" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build distribution
+    if: startsWith(github.ref, 'refs/tags/')
+    needs:
+      - test
+      - validate_release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install build tools
+        run: python -m pip install build twine
+
+      - name: Build and check distributions
+        run: |
+          python -m build
+          python -m twine check dist/*
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-distributions
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish_pypi:
+    name: Publish to PyPI
+    if: startsWith(github.ref, 'refs/tags/')
+    needs:
+      - build
+      - validate_release
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/${{ needs.validate_release.outputs.package_name }}
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: python-distributions
+          path: dist/
+
+      - name: Publish distributions
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          packages-dir: dist/
+
+  github_release:
+    name: Create GitHub release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs:
+      - build
+      - publish_pypi
+      - validate_release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: python-distributions
+          path: dist/
+
+      - name: Create release and attach distributions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_NAME: ${{ needs.validate_release.outputs.package_name }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" dist/*
+          --repo "$GITHUB_REPOSITORY"
+          --verify-tag
+          --generate-notes
+          --title "$PACKAGE_NAME $GITHUB_REF_NAME"

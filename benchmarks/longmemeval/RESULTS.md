@@ -43,6 +43,6 @@ policy.
 ## Scope
 
 This is a retrieval benchmark, not the complete LongMemEval question-answering
-evaluation. ContextMemory still needs a conversation-to-memory extractor and a
+evaluation. UrdWell still needs a conversation-to-memory extractor and a
 reader capable of synthesizing answers, resolving updates, and abstaining from
 the retrieved evidence.

@@ -24,7 +24,7 @@ async def main():
     })
     params = StdioServerParameters(
         command="uv",
-        args=["run", "contextmemory"],
+        args=["run", "urdwell"],
         env=env,
     )
 

@@ -21,6 +21,10 @@ data/
 notes
 results_*
 
+# Local RRF exploration / teaching scripts (not part of the package)
+demo_rrf.py
+probe_consolidation.py
+
 # Downloaded benchmark datasets and generated reports
 benchmarks/longmemeval/*.json
 benchmarks/longmemeval/*.json.part

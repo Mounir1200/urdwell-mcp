@@ -1,7 +1,7 @@
-"""Wire the ContextMemory MCP server into coding agents, and remove it again.
+"""Wire the UrdWell MCP server into coding agents, and remove it again.
 
-`contextmemory install` detects which agents are present on the machine and adds
-a stdio server entry to each one's configuration; `contextmemory uninstall`
+`urdwell install` detects which agents are present on the machine and adds a
+stdio server entry to each one's configuration; `urdwell uninstall`
 removes exactly those entries. Both commands are idempotent and never overwrite
 unrelated configuration.
 
@@ -29,8 +29,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # The installed console command and the subcommand that starts the stdio server.
-SERVER_NAME = "contextmemory"
-_COMMAND = "contextmemory"
+SERVER_NAME = "urdwell"
+LEGACY_SERVER_NAMES = ("contextmemory",)
+_COMMAND = "urdwell"
 _ARGS = ["serve"]
 
 
@@ -97,6 +98,8 @@ def _write_json(path: Path, data: dict) -> None:
 def _configure_mcpservers(path: Path) -> None:
     data = _load_json(path)
     servers = data.setdefault("mcpServers", {})
+    for legacy_name in LEGACY_SERVER_NAMES:
+        servers.pop(legacy_name, None)
     servers[SERVER_NAME] = {"command": _COMMAND, "args": list(_ARGS)}
     _write_json(path, data)
 
@@ -106,7 +109,11 @@ def _unconfigure_mcpservers(path: Path) -> bool:
         return False
     data = _load_json(path)
     servers = data.get("mcpServers")
-    if isinstance(servers, dict) and servers.pop(SERVER_NAME, None) is not None:
+    removed = False
+    if isinstance(servers, dict):
+        for name in (SERVER_NAME, *LEGACY_SERVER_NAMES):
+            removed = servers.pop(name, None) is not None or removed
+    if removed:
         _write_json(path, data)
         return True
     return False
@@ -119,6 +126,8 @@ def _configure_opencode(path: Path) -> None:
     data = _load_json(path)
     data.setdefault("$schema", "https://opencode.ai/config.json")
     servers = data.setdefault("mcp", {})
+    for legacy_name in LEGACY_SERVER_NAMES:
+        servers.pop(legacy_name, None)
     servers[SERVER_NAME] = {
         "type": "local",
         "command": [_COMMAND, *_ARGS],
@@ -132,7 +141,11 @@ def _unconfigure_opencode(path: Path) -> bool:
         return False
     data = _load_json(path)
     servers = data.get("mcp")
-    if isinstance(servers, dict) and servers.pop(SERVER_NAME, None) is not None:
+    removed = False
+    if isinstance(servers, dict):
+        for name in (SERVER_NAME, *LEGACY_SERVER_NAMES):
+            removed = servers.pop(name, None) is not None or removed
+    if removed:
         _write_json(path, data)
         return True
     return False
@@ -144,11 +157,42 @@ def _unconfigure_opencode(path: Path) -> bool:
 
 _CODEX_SECTION = f"[mcp_servers.{SERVER_NAME}]"
 _CODEX_BLOCK = f'\n{_CODEX_SECTION}\ncommand = "{_COMMAND}"\nargs = ["serve"]\n'
+_LEGACY_CODEX_SECTIONS = {
+    f"[mcp_servers.{name}]" for name in LEGACY_SERVER_NAMES
+}
+
+
+def _remove_codex_sections(text: str, sections: set[str]) -> tuple[str, bool]:
+    """Remove selected TOML tables without reformatting unrelated content."""
+    kept: list[str] = []
+    in_section = False
+    removed = False
+    for line in text.splitlines(keepends=True):
+        stripped = line.strip()
+        if not in_section and stripped in sections:
+            in_section = True
+            removed = True
+            continue
+        if in_section:
+            if stripped.startswith("[") and stripped.endswith("]"):
+                if stripped in sections:
+                    removed = True
+                    continue
+                in_section = False
+                kept.append(line)
+            continue
+        kept.append(line)
+
+    cleaned = "".join(kept).rstrip("\n")
+    return (cleaned + "\n" if cleaned else "", removed)
 
 
 def _configure_codex(path: Path) -> None:
     text = path.read_text(encoding="utf-8") if path.exists() else ""
+    text, migrated = _remove_codex_sections(text, _LEGACY_CODEX_SECTIONS)
     if _CODEX_SECTION in text:
+        if migrated:
+            path.write_text(text, encoding="utf-8")
         return  # already present; keep the file as the user left it
     if text and not text.endswith("\n"):
         text += "\n"
@@ -160,23 +204,11 @@ def _unconfigure_codex(path: Path) -> bool:
     if not path.exists():
         return False
     text = path.read_text(encoding="utf-8")
-    if _CODEX_SECTION not in text:
+    sections = {_CODEX_SECTION, *_LEGACY_CODEX_SECTIONS}
+    cleaned, removed = _remove_codex_sections(text, sections)
+    if not removed:
         return False
-    kept: list[str] = []
-    in_section = False
-    for line in text.splitlines(keepends=True):
-        stripped = line.strip()
-        if stripped == _CODEX_SECTION:
-            in_section = True
-            continue
-        if in_section:
-            # Our section ends at the next table header; keep that header.
-            if stripped.startswith("[") and stripped.endswith("]"):
-                in_section = False
-                kept.append(line)
-            continue
-        kept.append(line)
-    path.write_text("".join(kept).rstrip("\n") + "\n", encoding="utf-8")
+    path.write_text(cleaned, encoding="utf-8")
     return True
 
 
@@ -191,13 +223,14 @@ def _configure_claude_code() -> str:
     claude = shutil.which("claude")
     if claude is None:
         raise _SkipAgent("claude CLI not found on PATH")
-    # Remove first so re-running is idempotent and refreshes the command.
-    subprocess.run(
-        [claude, "mcp", "remove", "--scope", "user", SERVER_NAME],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    # Remove new and legacy names so re-running also performs the 0.3 migration.
+    for name in (SERVER_NAME, *LEGACY_SERVER_NAMES):
+        subprocess.run(
+            [claude, "mcp", "remove", "--scope", "user", name],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
     result = subprocess.run(
         [claude, "mcp", "add", "--scope", "user", SERVER_NAME, "--", _COMMAND, *_ARGS],
         check=False,
@@ -213,13 +246,16 @@ def _unconfigure_claude_code() -> bool:
     claude = shutil.which("claude")
     if claude is None:
         return False
-    result = subprocess.run(
-        [claude, "mcp", "remove", "--scope", "user", SERVER_NAME],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0
+    removed = False
+    for name in (SERVER_NAME, *LEGACY_SERVER_NAMES):
+        result = subprocess.run(
+            [claude, "mcp", "remove", "--scope", "user", name],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        removed = result.returncode == 0 or removed
+    return removed
 
 
 # ---------- Agent registry ----------
@@ -340,7 +376,7 @@ def _report(title: str, items: list[str]) -> None:
 
 
 def install() -> None:
-    """Detect installed agents and add the ContextMemory server to each."""
+    """Detect installed agents and add the UrdWell server to each."""
     configured: list[str] = []
     skipped: list[str] = []
     for agent in REGISTRY:
@@ -367,7 +403,7 @@ def install() -> None:
 
 
 def uninstall() -> None:
-    """Remove the ContextMemory server from every agent it configured."""
+    """Remove UrdWell and its legacy name from every configured agent."""
     removed: list[str] = []
     errors: list[str] = []
     for agent in REGISTRY:
@@ -378,7 +414,7 @@ def uninstall() -> None:
             errors.append(f"{agent.name}: {exc}")
 
     if not removed and not errors:
-        print("ContextMemory was not configured in any detected agent.")
+        print("UrdWell was not configured in any detected agent.")
         return
     _report("Removed", removed)
     _report("Errors", errors)

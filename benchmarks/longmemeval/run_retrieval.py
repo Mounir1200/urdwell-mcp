@@ -1,4 +1,4 @@
-"""Evaluate ContextMemory retrieval on the cleaned LongMemEval benchmark.
+"""Evaluate UrdWell retrieval on the cleaned LongMemEval benchmark.
 
 This runner follows the official flat retrieval setup:
   - user turns or user-only sessions are indexed;
@@ -7,7 +7,7 @@ This runner follows the official flat retrieval setup:
   - recall-any, recall-all, and NDCG are reported at several cutoffs.
 
 The run measures retrieval only. It does not claim end-to-end QA accuracy,
-because ContextMemory does not yet include an extraction LLM or reader LLM.
+because UrdWell does not yet include an extraction LLM or reader LLM.
 """
 
 from __future__ import annotations
@@ -23,15 +23,15 @@ from pathlib import Path
 import random
 import sys
 import time
-from typing import Any
+from typing import Any, Callable
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from contextmemory import embeddings
-from contextmemory.pipeline import SIMILARITY_THRESHOLD
+from urdwell import embeddings
+from urdwell.pipeline import SIMILARITY_THRESHOLD
 
 
 DEFAULT_DATASET = (
@@ -71,7 +71,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--include-date",
         action="store_true",
-        help="Prefix indexed text with the session date (ContextMemory variant).",
+        help="Prefix indexed text with the session date (UrdWell variant).",
     )
     parser.add_argument(
         "--limit",
@@ -258,12 +258,27 @@ def calibrate_thresholds(
     return rows
 
 
+# A ranking strategy turns the query, its per-corpus cosine scores, and the
+# corpus texts into ``[(corpus_index, reported_score)]`` ordered best-first.
+RankingStrategy = Callable[[str, list[float], list[str]], list[tuple[int, float]]]
+
+
+def cosine_ranking(
+    query: str,
+    cosines: list[float],
+    corpus_texts: list[str],
+) -> list[tuple[int, float]]:
+    """Baseline strategy: order corpus indices by descending cosine similarity."""
+    return sorted(enumerate(cosines), key=lambda item: item[1], reverse=True)
+
+
 def evaluate(
     cases: list[RetrievalCase],
     vectors: list[list[float]],
     slices: list[tuple[int, int, int]],
     threshold: float,
     save_details: bool,
+    rank_fn: RankingStrategy = cosine_ranking,
 ) -> dict[str, Any]:
     standard_rows: list[dict[str, float]] = []
     threshold_rows: list[dict[str, float]] = []
@@ -280,30 +295,24 @@ def evaluate(
             continue
 
         query_vector = vectors[query_index]
-        scored = [
-            (
-                corpus_index - corpus_start,
-                embeddings.cosine_similarity(
-                    query_vector,
-                    vectors[corpus_index],
-                ),
-            )
+        cosines = [
+            embeddings.cosine_similarity(query_vector, vectors[corpus_index])
             for corpus_index in range(corpus_start, corpus_end)
         ]
-        scored.sort(key=lambda item: item[1], reverse=True)
-        ranked_ids = [case.corpus_ids[index] for index, _ in scored]
-        ranking = [
-            (case.corpus_ids[index], score)
-            for index, score in scored
-        ]
 
+        # Abstention is always a cosine decision: the best cosine score alone
+        # decides whether anything is relevant, regardless of the ranking used.
         if case.question_type == "abstention":
             skipped["abstention"] += 1
-            abstention_top_scores.append(scored[0][1])
+            abstention_top_scores.append(max(cosines))
             continue
         if not case.correct_ids:
             skipped["no_user_target"] += 1
             continue
+
+        scored = rank_fn(case.query, cosines, case.corpus)
+        ranked_ids = [case.corpus_ids[index] for index, _ in scored]
+        ranking = [(case.corpus_ids[index], score) for index, score in scored]
 
         answerable_rankings.append((ranking, case.correct_ids))
         thresholded_ids = [
@@ -384,7 +393,7 @@ def print_report(report: dict[str, Any]) -> None:
     print("  overall:", format_metrics(report["standard"]["overall"]))
     for name, metrics in report["standard"]["by_type"].items():
         print(f"  {name}: {format_metrics(metrics)}")
-    print("\nContextMemory thresholded ranking:")
+    print("\nUrdWell thresholded ranking:")
     print("  overall:", format_metrics(report["thresholded"]["overall"]))
     for name, metrics in report["thresholded"]["by_type"].items():
         print(f"  {name}: {format_metrics(metrics)}")
@@ -398,9 +407,15 @@ def print_report(report: dict[str, Any]) -> None:
         )
 
 
-def main() -> None:
-    args = parse_args()
-    os.environ["CONTEXT_MEMORY_EMBEDDING_BACKEND"] = args.backend
+def prepare_cases(
+    args: argparse.Namespace,
+) -> tuple[list[RetrievalCase], list[list[float]], list[tuple[int, int, int]], float, int]:
+    """Load the dataset, build cases, and embed every query and corpus text.
+
+    Shared by both runners so the only difference between them is the ranking
+    strategy passed to ``evaluate``.
+    """
+    os.environ["URDWELL_EMBEDDING_BACKEND"] = args.backend
 
     entries = json.loads(args.dataset.read_text(encoding="utf-8"))
     entries = select_entries(entries, args.limit, args.seed)
@@ -421,6 +436,12 @@ def main() -> None:
     started = time.perf_counter()
     vectors = embeddings.embed_many(texts, batch_size=args.batch_size)
     embedding_seconds = time.perf_counter() - started
+    return cases, vectors, slices, embedding_seconds, len(entries)
+
+
+def main() -> None:
+    args = parse_args()
+    cases, vectors, slices, embedding_seconds, selected = prepare_cases(args)
 
     result = evaluate(
         cases,
@@ -432,7 +453,7 @@ def main() -> None:
     result["benchmark"] = {
         "name": "LongMemEval cleaned Oracle retrieval",
         "dataset": str(args.dataset),
-        "selected_instances": len(entries),
+        "selected_instances": selected,
         "backend": args.backend,
         "granularity": args.granularity,
         "include_date": args.include_date,

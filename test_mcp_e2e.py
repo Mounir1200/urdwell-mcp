@@ -22,14 +22,14 @@ class McpEndToEndTests(unittest.IsolatedAsyncioTestCase):
             env = get_default_environment()
             env.update(
                 {
-                    "CONTEXT_MEMORY_DATA_DIR": data_dir,
-                    "CONTEXT_MEMORY_EMBEDDING_BACKEND": "hashing",
+                    "URDWELL_DATA_DIR": data_dir,
+                    "URDWELL_EMBEDDING_BACKEND": "hashing",
                     "PYTHONUNBUFFERED": "1",
                 }
             )
             params = StdioServerParameters(
                 command=sys.executable,
-                args=["-m", "contextmemory.server"],
+                args=["-m", "urdwell.server"],
                 env=env,
                 cwd=str(REPO_ROOT),
             )

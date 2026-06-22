@@ -1,4 +1,4 @@
-"""Two-layer Parquet persistence for ContextMemory.
+"""Two-layer Parquet persistence for UrdWell.
 
 Layer 1: ``archive.parquet`` stores the verbatim exchange archive.
 Layer 2: ``memories.parquet`` stores structured memories and their embeddings.
@@ -19,9 +19,10 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from contextmemory.models import Memory, now_utc
+from urdwell.models import Memory, now_utc
 
-DATA_DIR_ENV_VAR = "CONTEXT_MEMORY_DATA_DIR"
+DATA_DIR_ENV_VAR = "URDWELL_DATA_DIR"
+LEGACY_DATA_DIR_ENV_VAR = "CONTEXT_MEMORY_DATA_DIR"
 
 _ARCHIVE_SCHEMA = pa.schema(
     [
@@ -49,16 +50,25 @@ _MEMORY_SCHEMA = pa.schema(
 )
 
 
-def default_data_dir() -> Path:
-    """Return the per-user data directory used when no location is configured."""
+def _platform_data_dirs() -> tuple[Path, Path]:
+    """Return the new and pre-0.3 default data directories for this platform."""
     system = platform.system()
     if system == "Windows":
         base = os.getenv("LOCALAPPDATA") or Path.home() / "AppData" / "Local"
-        return Path(base) / "ContextMemory"
+        return (Path(base) / "UrdWell", Path(base) / "ContextMemory")
     if system == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "ContextMemory"
+        base = Path.home() / "Library" / "Application Support"
+        return (base / "UrdWell", base / "ContextMemory")
     base = os.getenv("XDG_DATA_HOME") or Path.home() / ".local" / "share"
-    return Path(base) / "contextmemory"
+    return (Path(base) / "urdwell", Path(base) / "contextmemory")
+
+
+def default_data_dir() -> Path:
+    """Return the stable data directory, reusing a pre-0.3 store when present."""
+    current, legacy = _platform_data_dirs()
+    if not current.exists() and legacy.exists():
+        return legacy
+    return current
 
 
 def _atomic_write_parquet(
@@ -83,7 +93,12 @@ class ParquetStore:
     """Persist the archive, memories, and vectors in typed Parquet files."""
 
     def __init__(self, data_dir: Path | None = None):
-        configured_dir = data_dir or os.getenv(DATA_DIR_ENV_VAR) or default_data_dir()
+        configured_dir = (
+            data_dir
+            or os.getenv(DATA_DIR_ENV_VAR)
+            or os.getenv(LEGACY_DATA_DIR_ENV_VAR)
+            or default_data_dir()
+        )
         self.dir = Path(configured_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
 

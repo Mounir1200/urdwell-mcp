@@ -1,4 +1,4 @@
-"""Domain model for memories stored by ContextMemory.
+"""Domain model for memories stored by UrdWell.
 
 The model is bi-temporal:
   - ``written_at`` records when the memory was stored and never changes.

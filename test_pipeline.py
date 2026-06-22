@@ -3,9 +3,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from contextmemory import pipeline
-from contextmemory.models import Memory
-from contextmemory.storage import ParquetStore
+from urdwell import pipeline
+from urdwell.models import Memory
+from urdwell.storage import ParquetStore
 
 
 class PipelineArbitrationTests(unittest.TestCase):
@@ -24,8 +24,8 @@ class PipelineArbitrationTests(unittest.TestCase):
     def test_no_candidates_adds_memory_immediately(self):
         new_memory = Memory(content="The project uses SQLite", type="decision")
         with (
-            patch("contextmemory.pipeline.embeddings.embed", return_value=[1.0, 0.0]),
-            patch("contextmemory.pipeline.find_similar_memories", return_value=[]),
+            patch("urdwell.pipeline.embeddings.embed", return_value=[1.0, 0.0]),
+            patch("urdwell.pipeline.find_similar_memories", return_value=[]),
         ):
             report = pipeline.process_memory(self.store, new_memory)
 
@@ -47,9 +47,9 @@ class PipelineArbitrationTests(unittest.TestCase):
         old_memory = self._add_existing("Mounir likes coffee", "preference")
         new_memory = Memory(content="  mounir LIKES coffee  ", type="preference")
         with (
-            patch("contextmemory.pipeline.embeddings.embed", return_value=[1.0, 0.0]),
+            patch("urdwell.pipeline.embeddings.embed", return_value=[1.0, 0.0]),
             patch(
-                "contextmemory.pipeline.find_similar_memories",
+                "urdwell.pipeline.find_similar_memories",
                 return_value=[(old_memory, 1.0)],
             ),
         ):
@@ -68,9 +68,9 @@ class PipelineArbitrationTests(unittest.TestCase):
         similar_memories = [(coffee, 0.782)]
 
         with (
-            patch("contextmemory.pipeline.embeddings.embed", return_value=[1.0, 0.0]),
+            patch("urdwell.pipeline.embeddings.embed", return_value=[1.0, 0.0]),
             patch(
-                "contextmemory.pipeline.find_similar_memories",
+                "urdwell.pipeline.find_similar_memories",
                 return_value=similar_memories,
             ),
         ):
@@ -99,9 +99,9 @@ class PipelineArbitrationTests(unittest.TestCase):
         similar_memories = [(old_memory, 0.878)]
 
         with (
-            patch("contextmemory.pipeline.embeddings.embed", return_value=[1.0, 0.0]),
+            patch("urdwell.pipeline.embeddings.embed", return_value=[1.0, 0.0]),
             patch(
-                "contextmemory.pipeline.find_similar_memories",
+                "urdwell.pipeline.find_similar_memories",
                 return_value=similar_memories,
             ),
         ):
@@ -136,8 +136,8 @@ class PipelineArbitrationTests(unittest.TestCase):
         )
 
         with (
-            patch("contextmemory.pipeline.embeddings.embed", return_value=[1.0, 0.0]),
-            patch("contextmemory.pipeline.find_similar_memories", return_value=[]),
+            patch("urdwell.pipeline.embeddings.embed", return_value=[1.0, 0.0]),
+            patch("urdwell.pipeline.find_similar_memories", return_value=[]),
         ):
             report = pipeline.process_memory(
                 self.store,
@@ -156,9 +156,9 @@ class PipelineArbitrationTests(unittest.TestCase):
         new_memory = Memory(content="Mounir likes tea", type="preference")
 
         with (
-            patch("contextmemory.pipeline.embeddings.embed", return_value=[1.0, 0.0]),
+            patch("urdwell.pipeline.embeddings.embed", return_value=[1.0, 0.0]),
             patch(
-                "contextmemory.pipeline.find_similar_memories",
+                "urdwell.pipeline.find_similar_memories",
                 return_value=[(candidate, 0.782)],
             ),
         ):

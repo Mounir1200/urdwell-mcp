@@ -14,6 +14,11 @@ param(
 
     [string]$Model = "",
 
+    [ValidateSet("cosine", "hybrid")]
+    [string]$Ranking = "cosine",
+
+    [string]$ReuseStoresFrom = "",
+
     [int]$TopK = 5,
 
     [double]$Threshold = 0,
@@ -56,10 +61,14 @@ $arguments = @(
     "--judge-model", $selectedModel,
     "--base-url", "http://127.0.0.1:11434/v1",
     "--reasoning-effort", "none",
+    "--ranking", $Ranking,
     "--top-k", $TopK,
     "--threshold", $Threshold
 )
 
+if ($ReuseStoresFrom) {
+    $arguments += @("--reuse-stores-from", $ReuseStoresFrom)
+}
 if ($Limit -gt 0) {
     $arguments += @("--limit", $Limit)
 }
