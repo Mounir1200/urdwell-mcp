@@ -58,6 +58,6 @@ not commit it (it is ignored by Git by default).
 
 ## Reporting a vulnerability
 
-Please report suspected vulnerabilities privately to **mdabire05@gmail.com**
+Please use [GitHub private vulnerability reporting](https://github.com/Mounir1200/urdwell-mcp/security/advisories/new)
 rather than opening a public issue. Include a description, affected version, and
 reproduction steps. You can expect an initial acknowledgement within a few days.
