@@ -1,6 +1,6 @@
 """Convert text to vectors for semantic comparison.
 
-Two backends are available through ``CONTEXT_MEMORY_EMBEDDING_BACKEND``:
+Two backends are available through ``URDWELL_EMBEDDING_BACKEND``:
 
 - ``fastembed`` (default): ONNX runtime, ~0.2 GB, no PyTorch. Recommended.
 - ``hashing``: deterministic, dependency-free, for tests and offline diagnostics.
@@ -14,8 +14,10 @@ import unicodedata
 import warnings
 
 _DEFAULT_MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-_MODEL_ENV_VAR = "CONTEXT_MEMORY_EMBEDDING_MODEL"
-_BACKEND_ENV_VAR = "CONTEXT_MEMORY_EMBEDDING_BACKEND"
+_MODEL_ENV_VAR = "URDWELL_EMBEDDING_MODEL"
+_BACKEND_ENV_VAR = "URDWELL_EMBEDDING_BACKEND"
+_LEGACY_MODEL_ENV_VAR = "CONTEXT_MEMORY_EMBEDDING_MODEL"
+_LEGACY_BACKEND_ENV_VAR = "CONTEXT_MEMORY_EMBEDDING_BACKEND"
 _DEFAULT_BACKEND = "fastembed"
 _VALID_BACKENDS = ("fastembed", "hashing")
 _HASHING_DIMENSIONS = 256
@@ -23,14 +25,27 @@ _HASHING_DIMENSIONS = 256
 _fastembed_model = None
 
 
+def _configured_value(primary: str, legacy: str, default: str) -> str:
+    """Read a renamed setting while preserving pre-0.3 environments."""
+    return os.getenv(primary) or os.getenv(legacy) or default
+
+
 def model_name() -> str:
     """Return the multilingual FastEmbed model id."""
-    return os.getenv(_MODEL_ENV_VAR, _DEFAULT_MODEL_NAME)
+    return _configured_value(
+        _MODEL_ENV_VAR,
+        _LEGACY_MODEL_ENV_VAR,
+        _DEFAULT_MODEL_NAME,
+    )
 
 
 def backend_name() -> str:
     """Return the configured embedding backend."""
-    backend = os.getenv(_BACKEND_ENV_VAR, _DEFAULT_BACKEND).casefold()
+    backend = _configured_value(
+        _BACKEND_ENV_VAR,
+        _LEGACY_BACKEND_ENV_VAR,
+        _DEFAULT_BACKEND,
+    ).casefold()
     if backend not in _VALID_BACKENDS:
         raise ValueError(
             f"invalid {_BACKEND_ENV_VAR}: {backend!r}; "
@@ -55,7 +70,7 @@ def _get_fastembed_model():
         selected_model = model_name()
         # FastEmbed >= 0.6 intentionally uses the model's native mean pooling.
         # The warning only matters when reusing CLS vectors produced by 0.5.1;
-        # ContextMemory standardizes on mean pooling and documents that migration.
+        # UrdWell standardizes on mean pooling and documents that migration.
         mean_pooling_warning = (
             rf"The model {re.escape(selected_model)} now uses mean pooling "
             r"instead of CLS embedding\..*"

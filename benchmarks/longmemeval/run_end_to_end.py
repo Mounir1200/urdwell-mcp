@@ -1,6 +1,6 @@
-"""Run ContextMemory end to end on the cleaned LongMemEval benchmark.
+"""Run UrdWell end to end on the cleaned LongMemEval benchmark.
 
-The runner replays each timestamped history into an isolated ContextMemory
+The runner replays each timestamped history into an isolated UrdWell
 store, extracts and consolidates structured memories, retrieves relevant
 memories, asks a reader model to answer, and applies the official LongMemEval
 LLM-as-a-judge rubric.
@@ -25,11 +25,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from contextmemory import embeddings
-from contextmemory import pipeline
-from contextmemory import ranking
-from contextmemory.models import Memory, VALID_MEMORY_TYPES
-from contextmemory.storage import ParquetStore
+from urdwell import embeddings
+from urdwell import pipeline
+from urdwell import ranking
+from urdwell.models import Memory, VALID_MEMORY_TYPES
+from urdwell.storage import ParquetStore
 
 from benchmarks.longmemeval.llm_client import ChatClient, ChatResponse
 from benchmarks.longmemeval.run_retrieval import (
@@ -40,7 +40,7 @@ from benchmarks.longmemeval.run_retrieval import (
 
 
 DEFAULT_RUNS_DIR = PROJECT_ROOT / "benchmarks" / "longmemeval" / "reports" / "e2e"
-PROMPT_VERSION = "contextmemory-longmemeval-v1"
+PROMPT_VERSION = "urdwell-longmemeval-v1"
 DATE_FORMAT = "%Y/%m/%d (%a) %H:%M"
 
 
@@ -57,14 +57,17 @@ def parse_args() -> argparse.Namespace:
         "--ingestion-mode",
         choices=["llm", "verbatim"],
         default="llm",
-        help="How ContextMemory converts sessions into stored memories.",
+        help="How UrdWell converts sessions into stored memories.",
     )
     parser.add_argument("--reader-model", required=True)
     parser.add_argument("--extractor-model", default=None)
     parser.add_argument("--judge-model", default=None)
     parser.add_argument(
         "--base-url",
-        default=os.getenv("CONTEXT_MEMORY_LLM_BASE_URL", "https://api.openai.com/v1"),
+        default=os.getenv(
+            "URDWELL_LLM_BASE_URL",
+            os.getenv("CONTEXT_MEMORY_LLM_BASE_URL", "https://api.openai.com/v1"),
+        ),
     )
     parser.add_argument(
         "--api-key-env",
@@ -859,7 +862,7 @@ def build_clients(args: argparse.Namespace) -> tuple[ChatClient, ChatClient, Cha
 
 def main() -> None:
     args = parse_args()
-    os.environ["CONTEXT_MEMORY_EMBEDDING_BACKEND"] = args.backend
+    os.environ["URDWELL_EMBEDDING_BACKEND"] = args.backend
     entries = json.loads(args.dataset.read_text(encoding="utf-8"))
     entries = select_entries(entries, args.limit, args.seed)
 

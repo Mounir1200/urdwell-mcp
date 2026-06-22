@@ -1,4 +1,4 @@
-"""Evaluate ContextMemory retrieval on the cleaned LongMemEval benchmark.
+"""Evaluate UrdWell retrieval on the cleaned LongMemEval benchmark.
 
 This runner follows the official flat retrieval setup:
   - user turns or user-only sessions are indexed;
@@ -7,7 +7,7 @@ This runner follows the official flat retrieval setup:
   - recall-any, recall-all, and NDCG are reported at several cutoffs.
 
 The run measures retrieval only. It does not claim end-to-end QA accuracy,
-because ContextMemory does not yet include an extraction LLM or reader LLM.
+because UrdWell does not yet include an extraction LLM or reader LLM.
 """
 
 from __future__ import annotations
@@ -30,8 +30,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from contextmemory import embeddings
-from contextmemory.pipeline import SIMILARITY_THRESHOLD
+from urdwell import embeddings
+from urdwell.pipeline import SIMILARITY_THRESHOLD
 
 
 DEFAULT_DATASET = (
@@ -71,7 +71,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--include-date",
         action="store_true",
-        help="Prefix indexed text with the session date (ContextMemory variant).",
+        help="Prefix indexed text with the session date (UrdWell variant).",
     )
     parser.add_argument(
         "--limit",
@@ -393,7 +393,7 @@ def print_report(report: dict[str, Any]) -> None:
     print("  overall:", format_metrics(report["standard"]["overall"]))
     for name, metrics in report["standard"]["by_type"].items():
         print(f"  {name}: {format_metrics(metrics)}")
-    print("\nContextMemory thresholded ranking:")
+    print("\nUrdWell thresholded ranking:")
     print("  overall:", format_metrics(report["thresholded"]["overall"]))
     for name, metrics in report["thresholded"]["by_type"].items():
         print(f"  {name}: {format_metrics(metrics)}")
@@ -415,7 +415,7 @@ def prepare_cases(
     Shared by both runners so the only difference between them is the ranking
     strategy passed to ``evaluate``.
     """
-    os.environ["CONTEXT_MEMORY_EMBEDDING_BACKEND"] = args.backend
+    os.environ["URDWELL_EMBEDDING_BACKEND"] = args.backend
 
     entries = json.loads(args.dataset.read_text(encoding="utf-8"))
     entries = select_entries(entries, args.limit, args.seed)

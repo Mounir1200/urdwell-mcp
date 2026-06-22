@@ -7,9 +7,9 @@ expire old memories instead of deleting them.
 
 import unicodedata
 
-from contextmemory import embeddings
-from contextmemory.models import Memory
-from contextmemory.storage import ParquetStore
+from urdwell import embeddings
+from urdwell.models import Memory
+from urdwell.storage import ParquetStore
 
 # Tune this threshold empirically for the selected embedding model.
 SIMILARITY_THRESHOLD = 0.55

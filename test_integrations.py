@@ -4,7 +4,7 @@ import tomllib
 import unittest
 from pathlib import Path
 
-from contextmemory import integrations as ig
+from urdwell import integrations as ig
 
 
 class McpServersWriterTests(unittest.TestCase):
@@ -24,8 +24,8 @@ class McpServersWriterTests(unittest.TestCase):
 
         data = json.loads(self.path.read_text())
         self.assertEqual(
-            data["mcpServers"]["contextmemory"],
-            {"command": "contextmemory", "args": ["serve"]},
+            data["mcpServers"]["urdwell"],
+            {"command": "urdwell", "args": ["serve"]},
         )
         self.assertIn("other", data["mcpServers"])
         self.assertEqual(data["theme"], "dark")
@@ -35,16 +35,33 @@ class McpServersWriterTests(unittest.TestCase):
         ig._configure_mcpservers(self.path)
 
         data = json.loads(self.path.read_text())
-        self.assertEqual(list(data["mcpServers"]), ["contextmemory"])
+        self.assertEqual(list(data["mcpServers"]), ["urdwell"])
+
+    def test_configure_replaces_legacy_server_entry(self):
+        self.path.write_text(
+            json.dumps({"mcpServers": {"contextmemory": {"command": "old"}}})
+        )
+
+        ig._configure_mcpservers(self.path)
+
+        servers = json.loads(self.path.read_text())["mcpServers"]
+        self.assertNotIn("contextmemory", servers)
+        self.assertEqual(
+            servers["urdwell"],
+            {"command": "urdwell", "args": ["serve"]},
+        )
 
     def test_unconfigure_removes_only_our_entry(self):
         self.path.write_text(
-            json.dumps({"mcpServers": {"contextmemory": {}, "other": {}}})
+            json.dumps(
+                {"mcpServers": {"urdwell": {}, "contextmemory": {}, "other": {}}}
+            )
         )
 
         self.assertTrue(ig._unconfigure_mcpservers(self.path))
 
         servers = json.loads(self.path.read_text())["mcpServers"]
+        self.assertNotIn("urdwell", servers)
         self.assertNotIn("contextmemory", servers)
         self.assertIn("other", servers)
 
@@ -72,15 +89,15 @@ class OpencodeWriterTests(unittest.TestCase):
         data = json.loads(self.path.read_text())
         self.assertEqual(data["$schema"], "https://opencode.ai/config.json")
         self.assertEqual(
-            data["mcp"]["contextmemory"],
-            {"type": "local", "command": ["contextmemory", "serve"], "enabled": True},
+            data["mcp"]["urdwell"],
+            {"type": "local", "command": ["urdwell", "serve"], "enabled": True},
         )
 
     def test_unconfigure_removes_entry(self):
         ig._configure_opencode(self.path)
         self.assertTrue(ig._unconfigure_opencode(self.path))
         self.assertNotIn(
-            "contextmemory", json.loads(self.path.read_text()).get("mcp", {})
+            "urdwell", json.loads(self.path.read_text()).get("mcp", {})
         )
 
 
@@ -99,13 +116,29 @@ class CodexTomlWriterTests(unittest.TestCase):
         ig._configure_codex(self.path)
 
         text = self.path.read_text()
-        self.assertEqual(text.count("[mcp_servers.contextmemory]"), 1)
+        self.assertEqual(text.count("[mcp_servers.urdwell]"), 1)
         parsed = tomllib.loads(text)
         self.assertEqual(
-            parsed["mcp_servers"]["contextmemory"],
-            {"command": "contextmemory", "args": ["serve"]},
+            parsed["mcp_servers"]["urdwell"],
+            {"command": "urdwell", "args": ["serve"]},
         )
         self.assertEqual(parsed["other"]["key"], 1)
+
+    def test_configure_replaces_legacy_codex_section(self):
+        self.path.write_text(
+            '[mcp_servers.contextmemory]\ncommand = "contextmemory"\nargs = ["serve"]\n'
+            "\n[other]\nkey = 3\n"
+        )
+
+        ig._configure_codex(self.path)
+
+        parsed = tomllib.loads(self.path.read_text())
+        self.assertNotIn("contextmemory", parsed.get("mcp_servers", {}))
+        self.assertEqual(
+            parsed["mcp_servers"]["urdwell"],
+            {"command": "urdwell", "args": ["serve"]},
+        )
+        self.assertEqual(parsed["other"]["key"], 3)
 
     def test_unconfigure_removes_our_section_and_keeps_the_next(self):
         ig._configure_codex(self.path)

@@ -3,12 +3,13 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pyarrow.parquet as pq
 
-from contextmemory import storage
-from contextmemory.models import Memory
-from contextmemory.storage import ParquetStore
+from urdwell import storage
+from urdwell.models import Memory
+from urdwell.storage import ParquetStore
 
 
 class DefaultDataDirTests(unittest.TestCase):
@@ -37,6 +38,36 @@ class DefaultDataDirTests(unittest.TestCase):
                     os.environ.pop(storage.DATA_DIR_ENV_VAR, None)
                 else:
                     os.environ[storage.DATA_DIR_ENV_VAR] = previous
+
+    def test_legacy_environment_variable_remains_supported(self):
+        previous = os.environ.pop(storage.DATA_DIR_ENV_VAR, None)
+        previous_legacy = os.environ.get(storage.LEGACY_DATA_DIR_ENV_VAR)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            os.environ[storage.LEGACY_DATA_DIR_ENV_VAR] = temp_dir
+            try:
+                store = ParquetStore()
+                self.assertEqual(store.dir, Path(temp_dir))
+            finally:
+                if previous is not None:
+                    os.environ[storage.DATA_DIR_ENV_VAR] = previous
+                if previous_legacy is None:
+                    os.environ.pop(storage.LEGACY_DATA_DIR_ENV_VAR, None)
+                else:
+                    os.environ[storage.LEGACY_DATA_DIR_ENV_VAR] = previous_legacy
+
+    def test_existing_pre_rename_default_store_is_reused(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            current = Path(temp_dir) / "UrdWell"
+            legacy = Path(temp_dir) / "ContextMemory"
+            legacy.mkdir()
+            with patch(
+                "urdwell.storage._platform_data_dirs",
+                return_value=(current, legacy),
+            ):
+                self.assertEqual(storage.default_data_dir(), legacy)
+
+                current.mkdir()
+                self.assertEqual(storage.default_data_dir(), current)
 
 
 class ParquetStoreTests(unittest.TestCase):

@@ -1,6 +1,6 @@
 # LongMemEval Benchmark
 
-This directory contains the ContextMemory benchmark harness and locally
+This directory contains the UrdWell benchmark harness and locally
 downloaded LongMemEval data.
 
 The official cleaned dataset is published by the LongMemEval authors:
@@ -31,7 +31,7 @@ uv run python benchmarks/longmemeval/run_retrieval.py \
 ```
 
 By default, the indexed corpus matches the official retrieval baseline and
-contains only user text. Add `--include-date` to run the ContextMemory
+contains only user text. Add `--include-date` to run the UrdWell
 time-aware variant, which prefixes each indexed item with its session date:
 
 ```bash
@@ -45,14 +45,14 @@ Remove `--limit` to evaluate all 500 instances. Reports are written under
 `benchmarks/longmemeval/reports/`.
 
 This harness measures retrieval, not final question-answering accuracy.
-ContextMemory does not yet include the extraction and reader LLMs needed for a
+UrdWell does not yet include the extraction and reader LLMs needed for a
 complete LongMemEval QA evaluation.
 
 See `RESULTS.md` for the current MiniLM baseline and threshold calibration.
 
 ## Ranking Comparison: Cosine vs Hybrid (BM25 + RRF)
 
-ContextMemory ranks retrieved memories one of two ways, selectable with
+UrdWell ranks retrieved memories one of two ways, selectable with
 `--ranking` on the end-to-end runner and used by the production
 `search_memory` server tool.
 
@@ -141,7 +141,7 @@ The end-to-end runner performs the complete memory workflow:
 
 1. replay timestamped sessions into an isolated archive;
 2. extract and consolidate structured memories;
-3. retrieve memories with ContextMemory;
+3. retrieve memories with UrdWell;
 4. generate an answer;
 5. grade it with the official LongMemEval LLM-as-a-judge rubric.
 
@@ -153,7 +153,7 @@ It accepts any provider exposing an OpenAI-compatible
 The tested local configuration is:
 
 - Ollama `0.21.2`
-- `gemma4:26b` for ContextMemory answers and local judging
+- `gemma4:26b` for UrdWell answers and local judging
 - `gemma4-8b-128k` for the raw-history baseline
 - MiniLM for semantic retrieval
 - no API key and no usage fees
@@ -191,7 +191,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
 ```
 
 The local script defaults to `verbatim` ingestion. It stores dated
-user-assistant rounds without an extraction LLM, then runs ContextMemory
+user-assistant rounds without an extraction LLM, then runs UrdWell
 retrieval, answer generation, and local judging. A measured S case with 476
 turns took 168 seconds on the reference Zenbook, suggesting roughly 23 hours
 for 500 cases. Actual duration varies by case and thermal conditions.
@@ -326,7 +326,7 @@ python benchmarks\longmemeval\compare_runs.py `
   benchmarks\longmemeval\reports\e2e\s-500-none\summary.json
 ```
 
-ContextMemory demonstrates useful value when it substantially beats the
+UrdWell demonstrates useful value when it substantially beats the
 no-memory floor and approaches raw-history accuracy while sending much less
 context to the reader. Pay particular attention to `knowledge-update`,
 `multi-session`, and `temporal-reasoning`.

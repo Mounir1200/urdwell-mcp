@@ -13,7 +13,7 @@ from benchmarks.longmemeval.run_end_to_end import (
     ingest_verbatim_case,
     official_judge_prompt,
 )
-from contextmemory.storage import ParquetStore
+from urdwell.storage import ParquetStore
 
 
 class FakeClient:
@@ -68,17 +68,17 @@ class FakeClient:
 class LongMemEvalEndToEndTests(unittest.TestCase):
     def setUp(self):
         self.previous_backend = os.environ.get(
-            "CONTEXT_MEMORY_EMBEDDING_BACKEND"
+            "URDWELL_EMBEDDING_BACKEND"
         )
-        os.environ["CONTEXT_MEMORY_EMBEDDING_BACKEND"] = "hashing"
+        os.environ["URDWELL_EMBEDDING_BACKEND"] = "hashing"
         self.temp_dir = tempfile.TemporaryDirectory()
 
     def tearDown(self):
         self.temp_dir.cleanup()
         if self.previous_backend is None:
-            os.environ.pop("CONTEXT_MEMORY_EMBEDDING_BACKEND", None)
+            os.environ.pop("URDWELL_EMBEDDING_BACKEND", None)
         else:
-            os.environ["CONTEXT_MEMORY_EMBEDDING_BACKEND"] = self.previous_backend
+            os.environ["URDWELL_EMBEDDING_BACKEND"] = self.previous_backend
 
     def _entry(self):
         return {

@@ -2,14 +2,14 @@
 
 ## Supported versions
 
-ContextMemory is pre-1.0. Security fixes are applied to the latest release only.
+UrdWell is pre-1.0. Security fixes are applied to the latest release only.
 
 ## Threat model
 
-ContextMemory runs as a **local process** launched by an MCP client (for example
-Claude Desktop) over **stdio**. It opens **no network port** and exposes no
-remote attack surface in its default configuration. The data store is a set of
-local Parquet files owned by the user who runs the server.
+UrdWell runs as a **local process** launched by an MCP client (for example
+Claude Desktop) over **stdio**. It does not listen on a network port by default.
+The data store is a set of local Parquet files owned by the user who runs the
+server.
 
 As a result, the security considerations below are about **data integrity** and
 **context safety**, not remote code execution.
@@ -30,20 +30,20 @@ grant memory-writing tools to agents whose input sources you trust.
 ### Embedding model is a supply-chain trust boundary
 With the default `fastembed` backend, the ONNX embedding model is downloaded
 from Hugging Face on first use. Loading remote model data remains a supply-chain
-trust boundary. ContextMemory does not install or execute PyTorch.
+trust boundary. UrdWell does not install or execute PyTorch.
 
 For fully offline, dependency-free operation, use the deterministic backend:
 
 ```bash
-CONTEXT_MEMORY_EMBEDDING_BACKEND=hashing
+URDWELL_EMBEDDING_BACKEND=hashing
 ```
 
 ### Local data is stored unencrypted
 Memories, embeddings, and the raw archive are written as unencrypted Parquet under the
-data directory (`CONTEXT_MEMORY_DATA_DIR`, default `data/`). Anyone with read
-access to that directory can read every stored memory. Place the data directory
-on storage with appropriate filesystem permissions, and do not commit it (it is
-ignored by Git by default).
+data directory (`URDWELL_DATA_DIR`, or the stable per-user platform directory).
+Anyone with read access to that directory can read every stored memory. Place
+the data directory on storage with appropriate filesystem permissions, and do
+not commit it (it is ignored by Git by default).
 
 ## Hardening already in place
 

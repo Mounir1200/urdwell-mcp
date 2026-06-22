@@ -1,4 +1,4 @@
-"""Evaluate ContextMemory retrieval with hybrid BM25 + cosine ranking (RRF).
+"""Evaluate UrdWell retrieval with hybrid BM25 + cosine ranking (RRF).
 
 Same harness as ``run_retrieval.py`` (identical dataset, cases, and metrics);
 the only difference is the ranking strategy. Dense cosine scores are fused with
@@ -28,8 +28,8 @@ for path in (PROJECT_ROOT, BENCHMARK_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from contextmemory import ranking
-from contextmemory.pipeline import SIMILARITY_THRESHOLD
+from urdwell import ranking
+from urdwell.pipeline import SIMILARITY_THRESHOLD
 from run_retrieval import (
     DEFAULT_DATASET,
     DEFAULT_REPORT_DIR,
@@ -48,7 +48,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--include-date",
         action="store_true",
-        help="Prefix indexed text with the session date (ContextMemory variant).",
+        help="Prefix indexed text with the session date (UrdWell variant).",
     )
     parser.add_argument(
         "--limit",

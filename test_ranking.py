@@ -1,7 +1,7 @@
 import unittest
 
-from contextmemory import ranking
-from contextmemory.models import Memory
+from urdwell import ranking
+from urdwell.models import Memory
 
 
 class Bm25Tests(unittest.TestCase):

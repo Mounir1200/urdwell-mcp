@@ -14,8 +14,8 @@ import math
 import re
 import unicodedata
 
-from contextmemory import embeddings
-from contextmemory.models import Memory
+from urdwell import embeddings
+from urdwell.models import Memory
 
 # Constantes de fusion et de BM25. Valeurs par défaut éprouvées, ajustables.
 RRF_K = 60
