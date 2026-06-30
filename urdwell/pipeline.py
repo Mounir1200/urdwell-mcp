@@ -22,15 +22,19 @@ def find_similar_memories(
     embedding: list[float],
     k: int = 5,
     threshold: float = SIMILARITY_THRESHOLD,
+    agent: str | None = None,
 ) -> list[tuple[Memory, float]]:
     """Return the highest-scoring active memories above the threshold.
 
-    A linear scan is sufficient for a few thousand memories. Larger stores
-    should use a vector index.
+    Only memories visible to ``agent`` are considered, so an agent-scoped memory
+    never collides with another agent's. A linear scan is sufficient for a few
+    thousand memories; larger stores should use a vector index.
     """
     scores = []
     stored_embeddings = store.all_embeddings()
     for memory in store.all(active_only=True):
+        if not memory.visible_to(agent):
+            continue
         stored_embedding = stored_embeddings.get(memory.id)
         if stored_embedding is None:
             continue
@@ -123,7 +127,9 @@ def process_memory(
 ) -> dict:
     """Process an incoming memory and return a report for the calling LLM."""
     embedding = embeddings.embed(new_memory.content)
-    similar_memories = find_similar_memories(store, embedding)
+    similar_memories = find_similar_memories(
+        store, embedding, agent=new_memory.agent
+    )
     action, validated_target = decide_action(
         new_memory,
         similar_memories,

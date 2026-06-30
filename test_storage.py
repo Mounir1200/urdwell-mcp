@@ -84,6 +84,22 @@ class ParquetStoreTests(unittest.TestCase):
             self.assertFalse((Path(temp_dir) / "memories.json").exists())
             self.assertFalse((Path(temp_dir) / "embeddings.json").exists())
 
+    def test_agent_provenance_and_scope_round_trip(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = ParquetStore(Path(temp_dir))
+            memory = Memory(
+                content="A fact.",
+                type="fact",
+                agent="claude-code",
+                scope="agent",
+            )
+
+            store.add(memory, [0.1, 0.2])
+
+            stored = store.get(memory.id)
+            self.assertEqual(stored.agent, "claude-code")
+            self.assertEqual(stored.scope, "agent")
+
     def test_archive_round_trip_uses_parquet(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = ParquetStore(Path(temp_dir))

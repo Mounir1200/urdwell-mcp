@@ -15,7 +15,7 @@ The project is designed around two complementary layers:
 
 - an append-only raw archive that preserves exact user-assistant exchanges;
 - structured bi-temporal memories with embeddings, confidence scores, source
-  references, and invalidation metadata.
+  references, agent provenance, sharing scope, and invalidation metadata.
 
 ## Purpose
 
@@ -54,6 +54,8 @@ The current implementation focuses on:
 | LongMemEval retrieval benchmark | Done |
 | LongMemEval end-to-end runner | Done |
 | Local Ollama + Gemma evaluation path | Done |
+| Per-memory provenance (writing agent) | Done |
+| Per-memory scope (global vs agent-private) | Done |
 | Learned or adaptive retrieval threshold | Planned |
 | Confidence decay for temporary state | Planned |
 
@@ -209,7 +211,7 @@ URDWELL_EMBEDDING_BACKEND=hashing uv run python -m unittest -v
 | `save_memory` | Stores a memory, or asks for arbitration when a similar active memory exists. |
 | `archive_exchange` | Appends an exact exchange to the raw archive without modifying previous entries. |
 | `search_memory` | Searches active memories with hybrid semantic + lexical (BM25 + RRF) ranking and returns scored results. |
-| `list_memories` | Lists memories by type. |
+| `list_memories` | Lists memories, optionally filtered by type and writing agent. |
 | `check_conflicts` | Detects potential contradictions without writing anything. |
 | `read_archive` | Reads the most recent raw archive entries. |
 
@@ -219,6 +221,70 @@ Supported memory types:
 - `preference`
 - `decision`
 - `temporary_state`
+
+## Memory confidence and decay
+
+Every memory carries a `confidence` score in `[0, 1]`, set by the writing agent
+(default `0.8`) and clamped on write. It records how sure the agent is that the
+content holds at write time.
+
+**Current behavior.** `confidence` is persisted and returned with every memory,
+but retrieval and arbitration do not yet read it — it is recorded signal, not an
+active input.
+
+**Planned — time decay for `temporary_state`.** Memory types age differently, so
+decay is scoped to the one type that is intrinsically time-bound:
+
+- `fact`, `preference`, and `decision` are semantic: they stay valid until a
+  newer memory contradicts them (the existing `EXPIRE` path), and are never
+  decayed by time. A fact does not become less true with age; expiring it on a
+  timer would be wrong.
+- `temporary_state` is episodic ("currently on a camping trip"). It loses
+  relevance on its own, so its retrievability decays:
+
+  ```text
+  R(Δt) = confidence · exp(−Δt / S)     Δt = time since the memory was last recalled
+  ```
+
+  The memory is marked inactive (its `valid_until` is set) once `R` drops below a
+  floor `τ`. Each successful recall resets `Δt`, so a state that stays in use
+  stays alive — the reinforcement effect from spaced-repetition and ACT-R memory
+  models.
+
+Defaults: `S = 3 days`, `τ = 0.1`. With the default `confidence` of `0.8`, an
+untouched `temporary_state` becomes inactive after about six days; a
+higher-confidence one lasts a little longer, a lower-confidence one less. `S` was
+chosen from the observed lifespans of `temporary_state` memories in the
+LongMemEval stores (hours to ~2 days before contradiction) and corroborated by
+the Generative Agents recency half-life (~2.9 days); treat it as a tunable prior,
+not a fixed constant.
+
+## Provenance and scope
+
+Every memory records **who wrote it** and **how widely it applies**:
+
+- **`agent`** — the coding agent that produced the memory (Claude Code, Codex,
+  Cursor, …). It is stamped automatically: `urdwell install` wires each agent's
+  server as `urdwell serve --agent <key>`, and the server records that identity
+  on every write. The model never declares it, so provenance cannot be forgotten
+  or faked. Memories written by a manual run, or before this existed, carry
+  `agent = null`.
+- **`scope`** — whether a memory is shared or private:
+  - **`global`** (default) — part of the shared memory. Every agent can retrieve
+    it and arbitrate against it, so a fact one agent learns is reused by all.
+  - **`agent`** — private to its author. It is only retrieved and de-duplicated
+    within the same agent, so a tool-specific preference ("Codex: pass the
+    `--sandbox` flag") never collides with a similar one from another agent.
+
+This separation fixes a concrete failure mode: without scope, a Claude
+preference and a near-identical Codex preference look like duplicates and one is
+silently dropped. With scope, a `global` preference still de-duplicates across
+agents (the shared brain), while an `agent`-scoped one stays distinct.
+
+Scope is honored wherever memories are matched — `search_memory`,
+`check_conflicts`, and the arbitration candidate search — so an agent never sees
+or merges another agent's private memories. `list_memories` remains a
+transparent inspection view of the whole store and can be filtered by `agent`.
 
 ## Configuration
 
