@@ -15,7 +15,7 @@ from mcp.server.fastmcp import FastMCP
 from urdwell import embeddings
 from urdwell import pipeline
 from urdwell import ranking
-from urdwell.models import Memory, VALID_MEMORY_TYPES
+from urdwell.models import Memory, VALID_MEMORY_TYPES, VALID_SCOPES
 from urdwell.storage import ParquetStore
 
 # Defensive ceilings on tool inputs. Memories are short sentences, so these are
@@ -44,6 +44,7 @@ def save_memory(
     memory_type: str,
     source: str | None = None,
     confidence: float = 0.8,
+    scope: Literal["global", "agent"] = "global",
     decision: Literal["ADD", "IGNORE", "EXPIRE"] | None = None,
     target_id: str | None = None,
 ) -> dict:
@@ -57,6 +58,9 @@ def save_memory(
         memory_type: "fact", "preference", "decision", or "temporary_state".
         source: Exact source quote or session reference when available.
         confidence: Confidence score from 0 to 1.
+        scope: "global" (default) shares the memory across all agents; "agent"
+            keeps it private to this agent, so a tool-specific memory is never
+            matched against or merged with another agent's.
         decision: Use only after ARBITRATION_REQUIRED. Choose ADD when facts
             are compatible, IGNORE for a duplicate, or EXPIRE when the new
             fact supersedes an old one.
@@ -74,6 +78,10 @@ def save_memory(
                 f"{sorted(VALID_MEMORY_TYPES)}"
             )
         }
+    if scope not in VALID_SCOPES:
+        return {
+            "error": f"invalid scope; expected one of {sorted(VALID_SCOPES)}"
+        }
     if len(content) > MAX_CONTENT_CHARS:
         return {"error": f"content exceeds {MAX_CONTENT_CHARS} characters"}
     memory = Memory(
@@ -81,6 +89,7 @@ def save_memory(
         type=memory_type,
         source=source,
         agent=_agent_id,
+        scope=scope,
         confidence=min(max(confidence, MIN_CONFIDENCE), MAX_CONFIDENCE),
     )
     return pipeline.process_memory(
@@ -128,7 +137,7 @@ def search_memory(
     candidates = [
         (memory, stored_embeddings[memory.id])
         for memory in store.all(active_only=not include_expired)
-        if memory.id in stored_embeddings
+        if memory.id in stored_embeddings and memory.visible_to(_agent_id)
     ]
     ranked = ranking.hybrid_rank(
         query,
@@ -164,7 +173,9 @@ def check_conflicts(content: str) -> list[dict]:
     if len(content) > MAX_CONTENT_CHARS:
         return [{"error": f"content exceeds {MAX_CONTENT_CHARS} characters"}]
     content_embedding = embeddings.embed(content)
-    similar_memories = pipeline.find_similar_memories(store, content_embedding)
+    similar_memories = pipeline.find_similar_memories(
+        store, content_embedding, agent=_agent_id
+    )
     return [
         {
             "id": memory.id,

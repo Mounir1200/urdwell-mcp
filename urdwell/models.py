@@ -20,6 +20,10 @@ VALID_MEMORY_TYPES = {
     "temporary_state",
 }
 
+# A memory is either shared across agents ("global") or private to the agent
+# that wrote it ("agent"), which stops tool-specific memories from colliding.
+VALID_SCOPES = {"global", "agent"}
+
 LEGACY_MEMORY_TYPES = {
     "fait": "fact",
     "preference": "preference",
@@ -41,6 +45,9 @@ class Memory:
     # Which agent wrote this memory, stamped at write time from the server's
     # configured identity. None when the writer is unknown (manual or pre-0.3).
     agent: str | None = None
+    # "global" memories are shared across agents; "agent" memories stay private
+    # to their author, matched and arbitrated only within that same agent.
+    scope: str = "global"
 
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     user: str = "default"
@@ -59,6 +66,18 @@ class Memory:
                 f"invalid memory type: {self.type!r} "
                 f"(expected one of {sorted(VALID_MEMORY_TYPES)})"
             )
+        if self.scope not in VALID_SCOPES:
+            raise ValueError(
+                f"invalid scope: {self.scope!r} "
+                f"(expected one of {sorted(VALID_SCOPES)})"
+            )
+
+    def visible_to(self, agent: str | None) -> bool:
+        """Whether ``agent`` may retrieve or arbitrate against this memory.
+
+        Global memories are shared; agent-scoped memories stay with their author.
+        """
+        return self.scope == "global" or self.agent == agent
 
     @property
     def is_active(self) -> bool:
@@ -88,4 +107,8 @@ class Memory:
         if not isinstance(memory_type, str):
             raise ValueError("memory type must be a string")
         converted["type"] = LEGACY_MEMORY_TYPES.get(memory_type, memory_type)
+        # A null scope (pre-scope rows, or a column null-filled on migration)
+        # means the default shared scope.
+        if converted.get("scope") is None:
+            converted.pop("scope", None)
         return cls(**converted)

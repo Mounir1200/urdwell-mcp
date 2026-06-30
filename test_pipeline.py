@@ -173,6 +173,34 @@ class PipelineArbitrationTests(unittest.TestCase):
         self.assertIn("error", report)
         self.assertEqual(len(self.store.all()), 2)
 
+    def test_agent_scope_isolates_candidates_across_agents(self):
+        private = Memory(
+            content="Use the sandbox flag",
+            type="preference",
+            agent="codex",
+            scope="agent",
+        )
+        shared = Memory(content="The project uses Postgres", type="fact")
+        self.store.add(private, [1.0, 0.0])
+        self.store.add(shared, [1.0, 0.0])
+
+        # A different agent (or an unidentified one) sees only the global
+        # memory, never Codex's private one.
+        for other_agent in (None, "claude-code"):
+            visible = pipeline.find_similar_memories(
+                self.store, [1.0, 0.0], agent=other_agent
+            )
+            self.assertEqual([m.id for m, _ in visible], [shared.id])
+
+        # The authoring agent sees both its private memory and the global one.
+        own = pipeline.find_similar_memories(self.store, [1.0, 0.0], agent="codex")
+        self.assertEqual({m.id for m, _ in own}, {private.id, shared.id})
+
+    def test_scope_defaults_to_global_and_is_validated(self):
+        self.assertEqual(Memory(content="x", type="fact").scope, "global")
+        with self.assertRaises(ValueError):
+            Memory(content="x", type="fact", scope="bogus")
+
     def test_legacy_french_schema_is_loaded(self):
         legacy = Memory.from_dict(
             {

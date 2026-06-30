@@ -15,7 +15,7 @@ The project is designed around two complementary layers:
 
 - an append-only raw archive that preserves exact user-assistant exchanges;
 - structured bi-temporal memories with embeddings, confidence scores, source
-  references, and invalidation metadata.
+  references, agent provenance, sharing scope, and invalidation metadata.
 
 ## Purpose
 
@@ -54,6 +54,8 @@ The current implementation focuses on:
 | LongMemEval retrieval benchmark | Done |
 | LongMemEval end-to-end runner | Done |
 | Local Ollama + Gemma evaluation path | Done |
+| Per-memory provenance (writing agent) | Done |
+| Per-memory scope (global vs agent-private) | Done |
 | Learned or adaptive retrieval threshold | Planned |
 | Confidence decay for temporary state | Planned |
 
@@ -209,7 +211,7 @@ URDWELL_EMBEDDING_BACKEND=hashing uv run python -m unittest -v
 | `save_memory` | Stores a memory, or asks for arbitration when a similar active memory exists. |
 | `archive_exchange` | Appends an exact exchange to the raw archive without modifying previous entries. |
 | `search_memory` | Searches active memories with hybrid semantic + lexical (BM25 + RRF) ranking and returns scored results. |
-| `list_memories` | Lists memories by type. |
+| `list_memories` | Lists memories, optionally filtered by type and writing agent. |
 | `check_conflicts` | Detects potential contradictions without writing anything. |
 | `read_archive` | Reads the most recent raw archive entries. |
 
@@ -256,6 +258,33 @@ chosen from the observed lifespans of `temporary_state` memories in the
 LongMemEval stores (hours to ~2 days before contradiction) and corroborated by
 the Generative Agents recency half-life (~2.9 days); treat it as a tunable prior,
 not a fixed constant.
+
+## Provenance and scope
+
+Every memory records **who wrote it** and **how widely it applies**:
+
+- **`agent`** — the coding agent that produced the memory (Claude Code, Codex,
+  Cursor, …). It is stamped automatically: `urdwell install` wires each agent's
+  server as `urdwell serve --agent <key>`, and the server records that identity
+  on every write. The model never declares it, so provenance cannot be forgotten
+  or faked. Memories written by a manual run, or before this existed, carry
+  `agent = null`.
+- **`scope`** — whether a memory is shared or private:
+  - **`global`** (default) — part of the shared memory. Every agent can retrieve
+    it and arbitrate against it, so a fact one agent learns is reused by all.
+  - **`agent`** — private to its author. It is only retrieved and de-duplicated
+    within the same agent, so a tool-specific preference ("Codex: pass the
+    `--sandbox` flag") never collides with a similar one from another agent.
+
+This separation fixes a concrete failure mode: without scope, a Claude
+preference and a near-identical Codex preference look like duplicates and one is
+silently dropped. With scope, a `global` preference still de-duplicates across
+agents (the shared brain), while an `agent`-scoped one stays distinct.
+
+Scope is honored wherever memories are matched — `search_memory`,
+`check_conflicts`, and the arbitration candidate search — so an agent never sees
+or merges another agent's private memories. `list_memories` remains a
+transparent inspection view of the whole store and can be filtered by `agent`.
 
 ## Configuration
 
