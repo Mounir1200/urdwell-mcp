@@ -17,10 +17,10 @@ import sys
 from urdwell import __version__
 
 
-def _run_serve() -> None:
+def _run_serve(agent: str | None = None) -> None:
     from urdwell.server import serve
 
-    serve()
+    serve(agent=agent)
 
 
 def _run_install() -> None:
@@ -59,9 +59,16 @@ def _build_parser() -> argparse.ArgumentParser:
         version=f"urdwell {__version__}",
     )
     subcommands = parser.add_subparsers(dest="command")
-    subcommands.add_parser(
+    serve_parser = subcommands.add_parser(
         "serve",
         help="Run the MCP server over stdio (default when no command is given).",
+    )
+    serve_parser.add_argument(
+        "--agent",
+        default=None,
+        help="Identifier of the agent this server is wired into; "
+        "recorded as the provenance of every memory it writes. "
+        "Set automatically by `urdwell install`.",
     )
     subcommands.add_parser(
         "install",
@@ -91,6 +98,9 @@ _COMMANDS = {
 def main(argv: list[str] | None = None) -> None:
     args = _build_parser().parse_args(argv)
     command = args.command or "serve"
+    if command == "serve":
+        _run_serve(agent=getattr(args, "agent", None))
+        return
     _COMMANDS[command]()
 
 

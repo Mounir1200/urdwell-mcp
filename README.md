@@ -220,6 +220,43 @@ Supported memory types:
 - `decision`
 - `temporary_state`
 
+## Memory confidence and decay
+
+Every memory carries a `confidence` score in `[0, 1]`, set by the writing agent
+(default `0.8`) and clamped on write. It records how sure the agent is that the
+content holds at write time.
+
+**Current behavior.** `confidence` is persisted and returned with every memory,
+but retrieval and arbitration do not yet read it — it is recorded signal, not an
+active input.
+
+**Planned — time decay for `temporary_state`.** Memory types age differently, so
+decay is scoped to the one type that is intrinsically time-bound:
+
+- `fact`, `preference`, and `decision` are semantic: they stay valid until a
+  newer memory contradicts them (the existing `EXPIRE` path), and are never
+  decayed by time. A fact does not become less true with age; expiring it on a
+  timer would be wrong.
+- `temporary_state` is episodic ("currently on a camping trip"). It loses
+  relevance on its own, so its retrievability decays:
+
+  ```text
+  R(Δt) = confidence · exp(−Δt / S)     Δt = time since the memory was last recalled
+  ```
+
+  The memory is marked inactive (its `valid_until` is set) once `R` drops below a
+  floor `τ`. Each successful recall resets `Δt`, so a state that stays in use
+  stays alive — the reinforcement effect from spaced-repetition and ACT-R memory
+  models.
+
+Defaults: `S = 3 days`, `τ = 0.1`. With the default `confidence` of `0.8`, an
+untouched `temporary_state` becomes inactive after about six days; a
+higher-confidence one lasts a little longer, a lower-confidence one less. `S` was
+chosen from the observed lifespans of `temporary_state` memories in the
+LongMemEval stores (hours to ~2 days before contradiction) and corroborated by
+the Generative Agents recency half-life (~2.9 days); treat it as a tunable prior,
+not a fixed constant.
+
 ## Configuration
 
 | Variable | Default | Purpose |

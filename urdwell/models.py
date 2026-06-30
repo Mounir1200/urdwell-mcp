@@ -38,6 +38,9 @@ class Memory:
     content: str
     type: str
     source: str | None = None
+    # Which agent wrote this memory, stamped at write time from the server's
+    # configured identity. None when the writer is unknown (manual or pre-0.3).
+    agent: str | None = None
 
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     user: str = "default"

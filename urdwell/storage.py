@@ -39,6 +39,7 @@ _MEMORY_SCHEMA = pa.schema(
         pa.field("content", pa.string(), nullable=False),
         pa.field("type", pa.string(), nullable=False),
         pa.field("source", pa.string()),
+        pa.field("agent", pa.string()),
         pa.field("user", pa.string(), nullable=False),
         pa.field("written_at", pa.string(), nullable=False),
         pa.field("valid_from", pa.string(), nullable=False),

@@ -74,6 +74,15 @@ class McpServersWriterTests(unittest.TestCase):
         with self.assertRaises(ig._SkipAgent):
             ig._configure_mcpservers(self.path)
 
+    def test_configure_tags_the_writing_agent(self):
+        ig._configure_mcpservers(self.path, "cursor")
+
+        servers = json.loads(self.path.read_text())["mcpServers"]
+        self.assertEqual(
+            servers["urdwell"],
+            {"command": "urdwell", "args": ["serve", "--agent", "cursor"]},
+        )
+
 
 class OpencodeWriterTests(unittest.TestCase):
     def setUp(self):
@@ -99,6 +108,12 @@ class OpencodeWriterTests(unittest.TestCase):
         self.assertNotIn(
             "urdwell", json.loads(self.path.read_text()).get("mcp", {})
         )
+
+    def test_configure_tags_the_writing_agent(self):
+        ig._configure_opencode(self.path, "opencode")
+
+        command = json.loads(self.path.read_text())["mcp"]["urdwell"]["command"]
+        self.assertEqual(command, ["urdwell", "serve", "--agent", "opencode"])
 
 
 class CodexTomlWriterTests(unittest.TestCase):
@@ -153,6 +168,15 @@ class CodexTomlWriterTests(unittest.TestCase):
     def test_unconfigure_returns_false_when_absent(self):
         self.path.write_text("[other]\nkey = 1\n")
         self.assertFalse(ig._unconfigure_codex(self.path))
+
+    def test_configure_tags_the_writing_agent(self):
+        ig._configure_codex(self.path, "codex")
+
+        parsed = tomllib.loads(self.path.read_text())
+        self.assertEqual(
+            parsed["mcp_servers"]["urdwell"],
+            {"command": "urdwell", "args": ["serve", "--agent", "codex"]},
+        )
 
 
 class RegistryTests(unittest.TestCase):

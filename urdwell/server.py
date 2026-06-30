@@ -32,6 +32,11 @@ MAX_CONFIDENCE = 1.0
 mcp = FastMCP("UrdWell")
 store = ParquetStore()
 
+# Identity of the agent this server instance is wired into, set by `serve` from
+# the `--agent` flag that `urdwell install` bakes into each agent's config. It is
+# stamped on every memory so its origin is known. None for direct/manual runs.
+_agent_id: str | None = None
+
 
 @mcp.tool()
 def save_memory(
@@ -75,6 +80,7 @@ def save_memory(
         content=content,
         type=memory_type,
         source=source,
+        agent=_agent_id,
         confidence=min(max(confidence, MIN_CONFIDENCE), MAX_CONFIDENCE),
     )
     return pipeline.process_memory(
@@ -140,12 +146,15 @@ def search_memory(
 @mcp.tool()
 def list_memories(
     memory_type: str | None = None,
+    agent: str | None = None,
     include_expired: bool = False,
 ) -> list[dict]:
-    """List memories, optionally filtered by type."""
+    """List memories, optionally filtered by type and writing agent."""
     memories = store.all(active_only=not include_expired)
     if memory_type is not None:
         memories = [memory for memory in memories if memory.type == memory_type]
+    if agent is not None:
+        memories = [memory for memory in memories if memory.agent == agent]
     return [memory.to_dict() for memory in memories]
 
 
@@ -174,14 +183,20 @@ def read_archive(last_n: int = 50) -> list[dict]:
     return store.read_archive(min(max(last_n, 0), MAX_ARCHIVE_READ))
 
 
-def serve() -> None:
+def serve(agent: str | None = None) -> None:
     """Serve UrdWell over stdio (the ``urdwell serve`` command).
+
+    ``agent`` identifies the coding agent this server is wired into. It is
+    recorded on every memory written during the session, so each memory carries
+    the provenance of the agent that produced it.
 
     The embedding model is preloaded here, on the main thread, before requests
     arrive: FastMCP runs synchronous tools in worker threads and importing the
     ML backend there can deadlock on Windows. Human-readable messages go to
     stderr because stdout carries the JSON-RPC protocol over stdio.
     """
+    global _agent_id
+    _agent_id = agent
     print(
         f"UrdWell: initializing {embeddings.backend_name()} embeddings...",
         file=sys.stderr,

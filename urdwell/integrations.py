@@ -35,6 +35,17 @@ _COMMAND = "urdwell"
 _ARGS = ["serve"]
 
 
+def _args_for(agent_key: str | None) -> list[str]:
+    """Server args for one agent, tagging its writes with their origin.
+
+    ``urdwell install`` already knows each agent's key, so the identity is
+    injected here at wiring time rather than trusted from the model at run time.
+    """
+    if agent_key is None:
+        return list(_ARGS)
+    return [*_ARGS, "--agent", agent_key]
+
+
 class _SkipAgent(Exception):
     """Raised when an agent is present but cannot be modified safely."""
 
@@ -95,12 +106,12 @@ def _write_json(path: Path, data: dict) -> None:
 # ---------- Writer 1: standard ``mcpServers`` JSON ----------
 
 
-def _configure_mcpservers(path: Path) -> None:
+def _configure_mcpservers(path: Path, agent_key: str | None = None) -> None:
     data = _load_json(path)
     servers = data.setdefault("mcpServers", {})
     for legacy_name in LEGACY_SERVER_NAMES:
         servers.pop(legacy_name, None)
-    servers[SERVER_NAME] = {"command": _COMMAND, "args": list(_ARGS)}
+    servers[SERVER_NAME] = {"command": _COMMAND, "args": _args_for(agent_key)}
     _write_json(path, data)
 
 
@@ -122,7 +133,7 @@ def _unconfigure_mcpservers(path: Path) -> bool:
 # ---------- Writer 2: opencode JSON schema ----------
 
 
-def _configure_opencode(path: Path) -> None:
+def _configure_opencode(path: Path, agent_key: str | None = None) -> None:
     data = _load_json(path)
     data.setdefault("$schema", "https://opencode.ai/config.json")
     servers = data.setdefault("mcp", {})
@@ -130,7 +141,7 @@ def _configure_opencode(path: Path) -> None:
         servers.pop(legacy_name, None)
     servers[SERVER_NAME] = {
         "type": "local",
-        "command": [_COMMAND, *_ARGS],
+        "command": [_COMMAND, *_args_for(agent_key)],
         "enabled": True,
     }
     _write_json(path, data)
@@ -156,10 +167,15 @@ def _unconfigure_opencode(path: Path) -> bool:
 # formatting; the standard library can read TOML but cannot write it.
 
 _CODEX_SECTION = f"[mcp_servers.{SERVER_NAME}]"
-_CODEX_BLOCK = f'\n{_CODEX_SECTION}\ncommand = "{_COMMAND}"\nargs = ["serve"]\n'
 _LEGACY_CODEX_SECTIONS = {
     f"[mcp_servers.{name}]" for name in LEGACY_SERVER_NAMES
 }
+
+
+def _codex_block(agent_key: str | None) -> str:
+    """Render the Codex TOML table. A JSON string array is also valid TOML."""
+    args = json.dumps(_args_for(agent_key))
+    return f'\n{_CODEX_SECTION}\ncommand = "{_COMMAND}"\nargs = {args}\n'
 
 
 def _remove_codex_sections(text: str, sections: set[str]) -> tuple[str, bool]:
@@ -187,7 +203,7 @@ def _remove_codex_sections(text: str, sections: set[str]) -> tuple[str, bool]:
     return (cleaned + "\n" if cleaned else "", removed)
 
 
-def _configure_codex(path: Path) -> None:
+def _configure_codex(path: Path, agent_key: str | None = None) -> None:
     text = path.read_text(encoding="utf-8") if path.exists() else ""
     text, migrated = _remove_codex_sections(text, _LEGACY_CODEX_SECTIONS)
     if _CODEX_SECTION in text:
@@ -197,7 +213,7 @@ def _configure_codex(path: Path) -> None:
     if text and not text.endswith("\n"):
         text += "\n"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text + _CODEX_BLOCK, encoding="utf-8")
+    path.write_text(text + _codex_block(agent_key), encoding="utf-8")
 
 
 def _unconfigure_codex(path: Path) -> bool:
@@ -232,7 +248,10 @@ def _configure_claude_code() -> str:
             text=True,
         )
     result = subprocess.run(
-        [claude, "mcp", "add", "--scope", "user", SERVER_NAME, "--", _COMMAND, *_ARGS],
+        [
+            claude, "mcp", "add", "--scope", "user", SERVER_NAME,
+            "--", _COMMAND, *_args_for("claude-code"),
+        ],
         check=False,
         capture_output=True,
         text=True,
@@ -275,7 +294,7 @@ def _file_agent(
     name: str,
     marker: Callable[[], Path | None],
     config_path: Callable[[], Path | None],
-    configure_writer: Callable[[Path], None],
+    configure_writer: Callable[[Path, str], None],
     unconfigure_writer: Callable[[Path], bool],
 ) -> Agent:
     """Build an Agent backed by a config file, detected by a marker directory."""
@@ -288,7 +307,7 @@ def _file_agent(
         path = config_path()
         if path is None:
             raise _SkipAgent("no config location on this platform")
-        configure_writer(path)
+        configure_writer(path, key)
         return str(path)
 
     def unconfigure() -> bool:
