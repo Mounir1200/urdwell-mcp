@@ -80,6 +80,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     subcommands.add_parser(
         "upgrade",
+        aliases=["update"],
         help="Update the installed UrdWell tool in place.",
     )
     subcommands.add_parser("version", help="Print the installed version.")
@@ -91,6 +92,7 @@ _COMMANDS = {
     "install": _run_install,
     "uninstall": _run_uninstall,
     "upgrade": _run_upgrade,
+    "update": _run_upgrade,
     "version": lambda: print(__version__),
 }
 

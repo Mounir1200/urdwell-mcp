@@ -140,7 +140,7 @@ uv tool install git+https://github.com/Mounir1200/urdwell-mcp
 
 The installer puts `urdwell` on your PATH but does not change your current
 shell — open a new terminal before the next step. Upgrade any time with
-`urdwell upgrade`.
+`urdwell upgrade` (`urdwell update` is an alias).
 
 ### 2. Wire up your agent(s)
 
@@ -293,6 +293,7 @@ transparent inspection view of the whole store and can be filtered by `agent`.
 | `URDWELL_DATA_DIR` | per-user data dir | Where `archive.parquet` and `memories.parquet` are stored. Existing JSON files are migrated automatically and retained as recovery copies. Defaults to a stable user location (`%LOCALAPPDATA%\UrdWell` on Windows, `~/.local/share/urdwell` on Linux, `~/Library/Application Support/UrdWell` on macOS) so upgrades never touch it. |
 | `URDWELL_EMBEDDING_BACKEND` | `fastembed` | `fastembed` (ONNX, no PyTorch) or `hashing` (deterministic, dependency-free, for tests). |
 | `URDWELL_EMBEDDING_MODEL` | paraphrase-multilingual-MiniLM-L12-v2 | FastEmbed model id. |
+| `FASTEMBED_CACHE_PATH` | per-user cache dir | Where the ONNX model is downloaded and cached. Defaults to a durable per-user location (`%LOCALAPPDATA%\UrdWell\cache\fastembed` on Windows, `~/.cache/urdwell/fastembed` on Linux, `~/Library/Caches/UrdWell/fastembed` on macOS) so the one-time download survives reboots. Only set this to override the location. |
 | `URDWELL_LLM_BASE_URL` | `https://api.openai.com/v1` | Default base URL for the LongMemEval chat client. |
 | `OPENAI_API_KEY` | unset | API key used by OpenAI-compatible LongMemEval runs. Not required for local Ollama. |
 
