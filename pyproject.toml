@@ -1,6 +1,6 @@
 [project]
 name = "urdwell"
-version = "0.3.0"
+version = "0.3.1"
 description = "Local-first memory MCP server with temporal history and semantic search"
 readme = "README.md"
 requires-python = ">=3.12"
