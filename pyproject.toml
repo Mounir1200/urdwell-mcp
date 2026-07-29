@@ -17,7 +17,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "mcp[cli]>=1.27.2",
+    "mcp[cli]>=1.27.2,<2",
     "fastembed>=0.8.0",
     "pyarrow>=18.0.0",
 ]
