@@ -141,7 +141,11 @@ jobs:
 
   publish_pypi:
     name: Publish to PyPI
-    if: startsWith(github.ref, 'refs/tags/')
+    # Off by default. Automated PyPI publishing stays disabled until the PyPI
+    # trusted publisher is configured; set the repository variable
+    # PUBLISH_TO_PYPI to "true" to re-enable it. The GitHub release below no
+    # longer depends on this job, so releases are cut with PyPI publishing off.
+    if: ${{ startsWith(github.ref, 'refs/tags/') && vars.PUBLISH_TO_PYPI == 'true' }}
     needs:
       - build
       - validate_release
@@ -169,7 +173,6 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs:
       - build
-      - publish_pypi
       - validate_release
     runs-on: ubuntu-latest
     permissions:
