@@ -1337,7 +1337,7 @@ wheels = [
 
 [[package]]
 name = "urdwell"
-version = "0.3.0"
+version = "0.3.1"
 source = { editable = "." }
 dependencies = [
     { name = "fastembed" },
@@ -1348,7 +1348,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastembed", specifier = ">=0.8.0" },
-    { name = "mcp", extras = ["cli"], specifier = ">=1.27.2" },
+    { name = "mcp", extras = ["cli"], specifier = ">=1.27.2,<2" },
     { name = "pyarrow", specifier = ">=18.0.0" },
 ]
 
